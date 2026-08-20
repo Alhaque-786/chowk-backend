@@ -63,6 +63,10 @@ run: ## Run the API server
 worker: ## Run the background worker
 	go run -ldflags "$(LDFLAGS)" ./cmd/worker
 
+.PHONY: seed
+seed: ## Seed the Khansama kitchen and menu for local development
+	go run ./cmd/seed
+
 .PHONY: dev
 dev: up migrate run ## Start dependencies, migrate, then run the API
 

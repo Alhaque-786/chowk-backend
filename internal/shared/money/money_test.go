@@ -1,6 +1,90 @@
 package money
 
-import "testing"
+import (
+	"encoding/json"
+	"testing"
+)
+
+// TestJSONRoundTrip guards a bug that actually shipped.
+//
+// Amount's fields are unexported, so before MarshalJSON existed an Amount
+// marshalled to `{}` and unmarshalled to ZERO. Anything caching a struct
+// containing an Amount — the Redis menu cache — returned every price as ₹0.
+//
+// The reason it was so easy to miss: on a cache MISS the loader returns the
+// original value, which is correct. Only a cache HIT returns the round-tripped
+// zero. So the first request after any write looked fine and every request after
+// it was wrong, which reads as flaky rather than broken.
+func TestJSONRoundTrip(t *testing.T) {
+	cases := []Amount{
+		FromMinor(28900, INR),
+		FromMinor(0, INR),
+		FromMinor(-5050, INR),
+		FromMinor(1, INR),
+		{}, // zero value must survive too
+	}
+
+	for _, original := range cases {
+		encoded, err := json.Marshal(original)
+		if err != nil {
+			t.Fatalf("Marshal(%v): %v", original.Minor(), err)
+		}
+
+		var decoded Amount
+		if err := json.Unmarshal(encoded, &decoded); err != nil {
+			t.Fatalf("Unmarshal(%s): %v", encoded, err)
+		}
+
+		if decoded.Minor() != original.Minor() {
+			t.Errorf("round trip lost value: %d -> %s -> %d",
+				original.Minor(), encoded, decoded.Minor())
+		}
+		if decoded.Currency() != original.Currency() {
+			t.Errorf("round trip lost currency: %q -> %q", original.Currency(), decoded.Currency())
+		}
+	}
+}
+
+// TestJSONRoundTripNested is the actual shape that broke: an Amount inside a
+// struct, which is how it reaches the cache.
+func TestJSONRoundTripNested(t *testing.T) {
+	type menuItem struct {
+		Name  string `json:"name"`
+		Price Amount `json:"price"`
+	}
+
+	original := menuItem{Name: "Chicken Dum Biryani", Price: FromRupees(289)}
+
+	encoded, err := json.Marshal(original)
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+
+	var decoded menuItem
+	if err := json.Unmarshal(encoded, &decoded); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+
+	if decoded.Price.Minor() != 28900 {
+		t.Errorf("nested Amount round-tripped to %d, want 28900 — cached prices would read as ₹%.2f",
+			decoded.Price.Minor(), float64(decoded.Price.Minor())/100)
+	}
+}
+
+// TestUnmarshalBareInteger accepts a payload written as a plain minor-unit
+// integer, so older or hand-written JSON still decodes rather than erroring.
+func TestUnmarshalBareInteger(t *testing.T) {
+	var a Amount
+	if err := json.Unmarshal([]byte("24999"), &a); err != nil {
+		t.Fatalf("Unmarshal bare integer: %v", err)
+	}
+	if a.Minor() != 24999 {
+		t.Errorf("Minor() = %d, want 24999", a.Minor())
+	}
+	if a.Currency() != INR {
+		t.Errorf("Currency() = %q, want INR", a.Currency())
+	}
+}
 
 // TestFloatWouldBeWrong is the justification for this entire package existing.
 //

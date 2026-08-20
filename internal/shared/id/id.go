@@ -35,6 +35,14 @@ func New() ID {
 // Parse validates an external identifier.
 func Parse(s string) (ID, error) { return uuid.Parse(s) }
 
+// MustParse parses a UUID literal, panicking on failure.
+//
+// ONLY for compile-time constants -- a seeded row's id, a well-known system
+// identifier. Never for user input: a panic on a malformed request would take
+// down the process. The panic is the point, since a bad literal is a programming
+// error that should fail at startup rather than produce a zero id at runtime.
+func MustParse(s string) ID { return uuid.MustParse(s) }
+
 func IsNil(v ID) bool { return v == uuid.Nil }
 
 // humanAlphabet is Crockford base32 minus vowels: no I/L/O/U/0/1, so codes

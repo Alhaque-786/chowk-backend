@@ -7,6 +7,7 @@
 package money
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
@@ -192,6 +193,55 @@ func (a Amount) SplitEvenly(n int) ([]Amount, error) {
 
 func (a Amount) Equal(b Amount) bool {
 	return a.minor == b.minor && a.normalizedCurrency() == b.normalizedCurrency()
+}
+
+// jsonAmount is the wire form of an Amount.
+//
+// Amount's fields are unexported, which makes it immutable and prevents an
+// arbitrary integer being cast into a currency amount. But it also means
+// encoding/json cannot see them, so without these methods an Amount silently
+// marshals to `{}` and unmarshals to zero.
+//
+// That failure mode is nasty and worth spelling out: anything that round-trips a
+// struct containing an Amount through JSON -- the Redis menu cache, an event
+// payload, a queued job -- would return ZERO MONEY. It would not error. A cached
+// menu would show every dish as free, and only on a cache hit, so it looks
+// intermittent.
+type jsonAmount struct {
+	Minor    int64    `json:"minor"`
+	Currency Currency `json:"currency"`
+}
+
+// MarshalJSON encodes minor units plus the currency.
+//
+// Minor units, never a decimal string or a float: this is the internal wire
+// format, and it must survive a round trip with no parsing or rounding at all.
+func (a Amount) MarshalJSON() ([]byte, error) {
+	return json.Marshal(jsonAmount{Minor: a.minor, Currency: a.normalizedCurrency()})
+}
+
+// UnmarshalJSON reconstructs an Amount.
+//
+// Also accepts a bare integer, so a payload written as `24999` still decodes to
+// ₹249.99 rather than failing. Defaults to INR when the currency is absent.
+func (a *Amount) UnmarshalJSON(data []byte) error {
+	var wire jsonAmount
+	if err := json.Unmarshal(data, &wire); err == nil {
+		a.minor = wire.Minor
+		a.currency = wire.Currency
+		if a.currency == "" {
+			a.currency = INR
+		}
+		return nil
+	}
+
+	var minor int64
+	if err := json.Unmarshal(data, &minor); err != nil {
+		return fmt.Errorf("money: unmarshal %s: %w", data, err)
+	}
+	a.minor = minor
+	a.currency = INR
+	return nil
 }
 
 func (a Amount) GreaterThan(b Amount) bool { return a.minor > b.minor }

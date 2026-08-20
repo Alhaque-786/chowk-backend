@@ -18,6 +18,7 @@ import (
 	"github.com/go-chi/cors"
 
 	"github.com/zevoxa/chowk-backend/internal/config"
+	"github.com/zevoxa/chowk-backend/internal/modules/catalog"
 	"github.com/zevoxa/chowk-backend/internal/modules/identity"
 	"github.com/zevoxa/chowk-backend/internal/platform/cache"
 	"github.com/zevoxa/chowk-backend/internal/platform/database"
@@ -45,6 +46,7 @@ type Server struct {
 	// Modules. Add each new module here and to routes() -- those are the only
 	// two places the composition root grows.
 	identity *identity.Module
+	catalog  *catalog.Module
 }
 
 // New wires everything together. Order matters: infrastructure, then the event
@@ -83,15 +85,6 @@ func New(ctx context.Context, cfg *config.Config, log *slog.Logger) (*Server, er
 	tokens := token.NewManager(cfg.Auth)
 	clk := clock.System{}
 
-	deps := identity.Deps{
-		Config: cfg,
-		DB:     db,
-		Cache:  redis,
-		Events: outbox,
-		Tokens: tokens,
-		Clock:  clk,
-	}
-
 	srv := &Server{
 		cfg:        cfg,
 		log:        log,
@@ -100,12 +93,19 @@ func New(ctx context.Context, cfg *config.Config, log *slog.Logger) (*Server, er
 		dispatcher: dispatcher,
 		relay:      relay,
 		tracer:     tracer,
-		identity:   identity.New(deps),
+
+		identity: identity.New(identity.Deps{
+			Config: cfg, DB: db, Cache: redis, Events: outbox, Tokens: tokens, Clock: clk,
+		}),
+		catalog: catalog.New(catalog.Deps{
+			Config: cfg, DB: db, Cache: redis, Events: outbox, Clock: clk,
+		}),
 	}
 
 	// Every module registers its event handlers before the relay starts, so no
 	// event can be dispatched to an unregistered consumer and dead-letter.
 	srv.identity.RegisterSubscribers(dispatcher)
+	srv.catalog.RegisterSubscribers(dispatcher)
 
 	srv.http = &http.Server{
 		Addr:         fmt.Sprintf(":%d", cfg.Server.Port),
@@ -174,11 +174,20 @@ func (s *Server) routes(tokens *token.Manager, limiter *ratelimit.Limiter) http.
 			r.Mount("/auth", s.identity.AuthRoutes(httpx.Authenticate(tokens)))
 		})
 
+		// --- Public browse: a customer must be able to see the menu before
+		// signing in, or the funnel is broken before it starts.
+		r.Group(func(r chi.Router) {
+			// OptionalAuth, not Authenticate: signed-in customers can be shown
+			// personalised content, but anonymous browsing must still work.
+			r.Use(httpx.OptionalAuth(tokens))
+			r.Mount("/kitchens", s.catalog.PublicRoutes())
+		})
+
 		// --- Kitchen-facing: the staff app ---
 		r.Group(func(r chi.Router) {
 			r.Use(httpx.Authenticate(tokens))
 			r.Use(httpx.RequireRole(httpx.RoleKitchenStaff, httpx.RoleKitchenAdmin))
-			// Mounted as modules land: /kitchen/orders, /kitchen/menu, /kitchen/inventory
+			r.Mount("/kitchen/catalog", s.catalog.KitchenRoutes())
 		})
 
 		// --- Admin dashboard ---
