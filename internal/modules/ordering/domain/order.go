@@ -161,6 +161,13 @@ type Order struct {
 	CancelReason string
 	CancelledBy  *id.ID
 
+	// Version backs optimistic locking. Two staff tablets, or a customer
+	// cancelling while the kitchen accepts, would otherwise produce a lost update
+	// where one action silently vanishes with no error. Every UPDATE carries
+	// `AND version = $expected`, so the second writer gets a conflict and the UI
+	// can reload instead of lying to the user.
+	Version int32
+
 	CreatedAt time.Time
 	UpdatedAt time.Time
 }

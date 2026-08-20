@@ -18,6 +18,7 @@ import (
 	"net/http"
 
 	"github.com/zevoxa/chowk-backend/internal/config"
+	"github.com/zevoxa/chowk-backend/internal/contracts"
 	identityhttp "github.com/zevoxa/chowk-backend/internal/modules/identity/adapter/http"
 	identitypg "github.com/zevoxa/chowk-backend/internal/modules/identity/adapter/postgres"
 	"github.com/zevoxa/chowk-backend/internal/modules/identity/app"
@@ -46,11 +47,15 @@ type Deps struct {
 type Module struct {
 	deps Deps
 
-	users    domain.UserRepository
-	sessions domain.SessionRepository
+	users     domain.UserRepository
+	sessions  domain.SessionRepository
+	addresses domain.AddressRepository
 
-	authService *app.AuthService
-	authHandler *identityhttp.AuthHandler
+	authService      *app.AuthService
+	addressService   *app.AddressService
+	directoryService *app.DirectoryService
+	authHandler      *identityhttp.AuthHandler
+	addressHandler   *identityhttp.AddressHandler
 }
 
 // New assembles the module. It performs no I/O -- construction must not fail, so
@@ -58,6 +63,7 @@ type Module struct {
 func New(deps Deps) *Module {
 	users := identitypg.NewUserRepository(deps.DB)
 	sessions := identitypg.NewSessionRepository(deps.DB)
+	addresses := identitypg.NewAddressRepository(deps.DB)
 
 	hasher := password.NewHasher(deps.Config.Auth.BcryptCost)
 
@@ -67,14 +73,20 @@ func New(deps Deps) *Module {
 		deps.Config.Auth.OTPTTL, deps.Config.Auth.OTPMaxAttempts,
 	)
 
+	addressService := app.NewAddressService(deps.DB, addresses, deps.Clock)
+
 	return &Module{
-		deps:        deps,
-		users:       users,
-		sessions:    sessions,
-		authService: authService,
+		deps:             deps,
+		users:            users,
+		sessions:         sessions,
+		addresses:        addresses,
+		authService:      authService,
+		addressService:   addressService,
+		directoryService: app.NewDirectoryService(users, addresses),
 		// Expose OTPs in responses outside production only, so local dev needs
 		// no SMS provider.
-		authHandler: identityhttp.NewAuthHandler(authService, !deps.Config.IsProduction()),
+		authHandler:    identityhttp.NewAuthHandler(authService, !deps.Config.IsProduction()),
+		addressHandler: identityhttp.NewAddressHandler(addressService),
 	}
 }
 
@@ -99,3 +111,12 @@ func (m *Module) RegisterSubscribers(_ eventbus.Subscriber) {}
 // AuthService is exposed so the composition root can build the auth middleware,
 // which needs to verify tokens.
 func (m *Module) AuthService() *app.AuthService { return m.authService }
+
+// AddressRoutes are the customer's saved delivery addresses. Mount behind
+// Authenticate.
+func (m *Module) AddressRoutes() http.Handler { return m.addressHandler.Routes() }
+
+// UserDirectory is the read-only lookup other modules use to resolve a user and
+// a delivery address. Ordering depends on this contract, never on identity
+// directly.
+func (m *Module) UserDirectory() contracts.UserDirectory { return m.directoryService }

@@ -18,8 +18,10 @@ import (
 	"github.com/go-chi/cors"
 
 	"github.com/zevoxa/chowk-backend/internal/config"
+	"github.com/zevoxa/chowk-backend/internal/contracts"
 	"github.com/zevoxa/chowk-backend/internal/modules/catalog"
 	"github.com/zevoxa/chowk-backend/internal/modules/identity"
+	"github.com/zevoxa/chowk-backend/internal/modules/ordering"
 	"github.com/zevoxa/chowk-backend/internal/platform/cache"
 	"github.com/zevoxa/chowk-backend/internal/platform/database"
 	"github.com/zevoxa/chowk-backend/internal/platform/eventbus"
@@ -47,6 +49,10 @@ type Server struct {
 	// two places the composition root grows.
 	identity *identity.Module
 	catalog  *catalog.Module
+	ordering *ordering.Module
+
+	// idempotency guards write endpoints against client retries.
+	idempotency *database.IdempotencyStore
 }
 
 // New wires everything together. Order matters: infrastructure, then the event
@@ -94,6 +100,8 @@ func New(ctx context.Context, cfg *config.Config, log *slog.Logger) (*Server, er
 		relay:      relay,
 		tracer:     tracer,
 
+		idempotency: database.NewIdempotencyStore(db),
+
 		identity: identity.New(identity.Deps{
 			Config: cfg, DB: db, Cache: redis, Events: outbox, Tokens: tokens, Clock: clk,
 		}),
@@ -102,10 +110,31 @@ func New(ctx context.Context, cfg *config.Config, log *slog.Logger) (*Server, er
 		}),
 	}
 
+	// Ordering is built last because it depends on the others' contracts.
+	//
+	// Null adapters stand in for modules that do not exist yet (see
+	// contracts/null.go). Each is honest about its absence: stock and rider
+	// dispatch degrade silently because that is safe, while payment FAILS LOUDLY
+	// because a silent success would mark orders paid without taking money.
+	// Replacing an entry here is what "that module is done" means.
+	srv.ordering = ordering.New(ordering.Deps{
+		Config: cfg, DB: db, Cache: redis, Events: outbox, Clock: clk,
+
+		Prices:   srv.catalog.PriceQuoter(),
+		Kitchens: srv.catalog.KitchenAvailability(),
+		Users:    srv.identity.UserDirectory(),
+
+		Stock:     contracts.NullStockReserver{},      // TODO: inventory module
+		Discounts: contracts.NullDiscountCalculator{}, // TODO: promotion module
+		Payments:  contracts.NullPaymentInitiator{},   // TODO: payment module
+		Riders:    contracts.NullRiderDispatcher{},    // TODO: delivery module
+	})
+
 	// Every module registers its event handlers before the relay starts, so no
 	// event can be dispatched to an unregistered consumer and dead-letter.
 	srv.identity.RegisterSubscribers(dispatcher)
 	srv.catalog.RegisterSubscribers(dispatcher)
+	srv.ordering.RegisterSubscribers(dispatcher)
 
 	srv.http = &http.Server{
 		Addr:         fmt.Sprintf(":%d", cfg.Server.Port),
@@ -183,11 +212,26 @@ func (s *Server) routes(tokens *token.Manager, limiter *ratelimit.Limiter) http.
 			r.Mount("/kitchens", s.catalog.PublicRoutes())
 		})
 
+		// --- Customer: cart, checkout, orders, addresses ---
+		r.Group(func(r chi.Router) {
+			r.Use(httpx.Authenticate(tokens))
+			// Idempotency on writes. Mobile clients retry on flaky networks, and a
+			// retried checkout without this is a second order and a second charge.
+			// Not required, so cart edits work without a key; checkout clients
+			// should always send one.
+			r.Use(httpx.Idempotency(s.idempotency, false))
+			r.Use(limiter.Middleware(ratelimit.RuleCheckout))
+
+			r.Mount("/", s.ordering.CustomerRoutes())
+			r.Mount("/addresses", s.identity.AddressRoutes())
+		})
+
 		// --- Kitchen-facing: the staff app ---
 		r.Group(func(r chi.Router) {
 			r.Use(httpx.Authenticate(tokens))
 			r.Use(httpx.RequireRole(httpx.RoleKitchenStaff, httpx.RoleKitchenAdmin))
 			r.Mount("/kitchen/catalog", s.catalog.KitchenRoutes())
+			r.Mount("/kitchen", s.ordering.KitchenRoutes())
 		})
 
 		// --- Admin dashboard ---
