@@ -6,8 +6,8 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/zevoxa/cloud-kitchen-backend/internal/platform/database"
-	"github.com/zevoxa/cloud-kitchen-backend/internal/shared/id"
+	"github.com/zevoxa/chowk-backend/internal/platform/database"
+	"github.com/zevoxa/chowk-backend/internal/shared/id"
 )
 
 // Outbox is the transactional-outbox Publisher.

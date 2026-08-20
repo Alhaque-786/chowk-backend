@@ -19,7 +19,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/zevoxa/cloud-kitchen-backend/internal/shared/id"
+	"github.com/zevoxa/chowk-backend/internal/shared/id"
 )
 
 // Name identifies an event type. Convention: "<aggregate>.<past-tense-verb>",

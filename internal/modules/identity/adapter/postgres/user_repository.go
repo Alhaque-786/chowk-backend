@@ -11,12 +11,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/zevoxa/cloud-kitchen-backend/internal/modules/identity/domain"
-	"github.com/zevoxa/cloud-kitchen-backend/internal/platform/database"
-	"github.com/zevoxa/cloud-kitchen-backend/internal/platform/httpx"
-	"github.com/zevoxa/cloud-kitchen-backend/internal/shared/apperr"
-	"github.com/zevoxa/cloud-kitchen-backend/internal/shared/id"
-	"github.com/zevoxa/cloud-kitchen-backend/internal/shared/paging"
+	"github.com/zevoxa/chowk-backend/internal/modules/identity/domain"
+	"github.com/zevoxa/chowk-backend/internal/platform/database"
+	"github.com/zevoxa/chowk-backend/internal/platform/httpx"
+	"github.com/zevoxa/chowk-backend/internal/shared/apperr"
+	"github.com/zevoxa/chowk-backend/internal/shared/id"
+	"github.com/zevoxa/chowk-backend/internal/shared/paging"
 )
 
 type UserRepository struct {

@@ -24,7 +24,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/zevoxa/cloud-kitchen-backend/internal/platform/metrics"
+	"github.com/zevoxa/chowk-backend/internal/platform/metrics"
 )
 
 // State is the breaker's current position.

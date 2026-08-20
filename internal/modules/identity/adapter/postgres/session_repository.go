@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/zevoxa/cloud-kitchen-backend/internal/modules/identity/domain"
-	"github.com/zevoxa/cloud-kitchen-backend/internal/platform/database"
-	"github.com/zevoxa/cloud-kitchen-backend/internal/shared/apperr"
-	"github.com/zevoxa/cloud-kitchen-backend/internal/shared/id"
+	"github.com/zevoxa/chowk-backend/internal/modules/identity/domain"
+	"github.com/zevoxa/chowk-backend/internal/platform/database"
+	"github.com/zevoxa/chowk-backend/internal/shared/apperr"
+	"github.com/zevoxa/chowk-backend/internal/shared/id"
 )
 
 type SessionRepository struct {

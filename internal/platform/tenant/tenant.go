@@ -36,9 +36,9 @@ package tenant
 import (
 	"context"
 
-	"github.com/zevoxa/cloud-kitchen-backend/internal/platform/httpx"
-	"github.com/zevoxa/cloud-kitchen-backend/internal/shared/apperr"
-	"github.com/zevoxa/cloud-kitchen-backend/internal/shared/id"
+	"github.com/zevoxa/chowk-backend/internal/platform/httpx"
+	"github.com/zevoxa/chowk-backend/internal/shared/apperr"
+	"github.com/zevoxa/chowk-backend/internal/shared/id"
 )
 
 // Scope is proof that a caller is authorised for specific tenant data.

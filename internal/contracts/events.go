@@ -19,8 +19,8 @@ package contracts
 import (
 	"time"
 
-	"github.com/zevoxa/cloud-kitchen-backend/internal/platform/eventbus"
-	"github.com/zevoxa/cloud-kitchen-backend/internal/shared/id"
+	"github.com/zevoxa/chowk-backend/internal/platform/eventbus"
+	"github.com/zevoxa/chowk-backend/internal/shared/id"
 )
 
 // Event names, grouped by publishing module. Format: "<aggregate>.<past tense>".

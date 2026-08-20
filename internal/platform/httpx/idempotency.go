@@ -10,8 +10,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/zevoxa/cloud-kitchen-backend/internal/platform/logger"
-	"github.com/zevoxa/cloud-kitchen-backend/internal/shared/apperr"
+	"github.com/zevoxa/chowk-backend/internal/platform/logger"
+	"github.com/zevoxa/chowk-backend/internal/shared/apperr"
 )
 
 // IdempotencyStore persists the outcome of a keyed request.

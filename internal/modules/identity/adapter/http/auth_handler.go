@@ -13,11 +13,11 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/zevoxa/cloud-kitchen-backend/internal/modules/identity/app"
-	"github.com/zevoxa/cloud-kitchen-backend/internal/modules/identity/domain"
-	"github.com/zevoxa/cloud-kitchen-backend/internal/platform/httpx"
-	"github.com/zevoxa/cloud-kitchen-backend/internal/shared/apperr"
-	"github.com/zevoxa/cloud-kitchen-backend/internal/shared/id"
+	"github.com/zevoxa/chowk-backend/internal/modules/identity/app"
+	"github.com/zevoxa/chowk-backend/internal/modules/identity/domain"
+	"github.com/zevoxa/chowk-backend/internal/platform/httpx"
+	"github.com/zevoxa/chowk-backend/internal/shared/apperr"
+	"github.com/zevoxa/chowk-backend/internal/shared/id"
 )
 
 type AuthHandler struct {

@@ -4,9 +4,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/zevoxa/cloud-kitchen-backend/internal/shared/apperr"
-	"github.com/zevoxa/cloud-kitchen-backend/internal/shared/id"
-	"github.com/zevoxa/cloud-kitchen-backend/internal/shared/money"
+	"github.com/zevoxa/chowk-backend/internal/shared/apperr"
+	"github.com/zevoxa/chowk-backend/internal/shared/id"
+	"github.com/zevoxa/chowk-backend/internal/shared/money"
 )
 
 // TestStateMachineRejectsIllegalTransitions is the test that protects the most

@@ -16,7 +16,7 @@ import (
 
 	"github.com/redis/go-redis/v9"
 
-	"github.com/zevoxa/cloud-kitchen-backend/internal/config"
+	"github.com/zevoxa/chowk-backend/internal/config"
 )
 
 // ErrMiss is returned when a key is absent. Callers must treat a miss as normal

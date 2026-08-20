@@ -30,7 +30,7 @@ import (
 	"go.opentelemetry.io/otel/trace/noop"
 )
 
-const serviceName = "cloud-kitchen-api"
+const serviceName = "chowk-api"
 
 // Config controls the exporter and sampling.
 type Config struct {

@@ -22,7 +22,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/zevoxa/cloud-kitchen-backend/internal/config"
+	"github.com/zevoxa/chowk-backend/internal/config"
 )
 
 // Querier is the subset of pgx satisfied by both *pgxpool.Pool and pgx.Tx.

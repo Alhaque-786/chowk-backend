@@ -281,11 +281,11 @@ singleflight collapses N queries to 1 per process.
 | **Distributed Tracing** | `platform/tracing` — OTel, W3C `traceparent`, `ParentBased` sampling keeps traces whole |
 | **RED metrics** | Rate, Errors, Duration per route |
 | **USE metrics** | Pool utilisation, bulkhead occupancy, in-flight requests |
-| **Business metrics** | `ck_business_orders_total`. A deploy that breaks checkout often shows a healthy 200 rate while orders quietly stop. |
+| **Business metrics** | `chowk_business_orders_total`. A deploy that breaks checkout often shows a healthy 200 rate while orders quietly stop. |
 | **Bounded Cardinality** | Route *patterns* as labels, never concrete paths. `/orders/{id}` not `/orders/abc-123`. |
 | **Queue Depth + Age** | `outbox_pending_events` and `oldest_pending_age_seconds`. 10 events stuck an hour is worse than 10,000 that arrived a second ago. |
 
-**The single most important gauge:** `ck_outbox_pending_events`. If the relay
+**The single most important gauge:** `chowk_outbox_pending_events`. If the relay
 stalls, the API stays perfectly healthy while every downstream side effect
 silently stops. Alert on sustained growth.
 

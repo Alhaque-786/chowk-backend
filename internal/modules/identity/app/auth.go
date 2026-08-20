@@ -15,17 +15,17 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/zevoxa/cloud-kitchen-backend/internal/contracts"
-	"github.com/zevoxa/cloud-kitchen-backend/internal/modules/identity/domain"
-	"github.com/zevoxa/cloud-kitchen-backend/internal/platform/cache"
-	"github.com/zevoxa/cloud-kitchen-backend/internal/platform/database"
-	"github.com/zevoxa/cloud-kitchen-backend/internal/platform/eventbus"
-	"github.com/zevoxa/cloud-kitchen-backend/internal/platform/httpx"
-	"github.com/zevoxa/cloud-kitchen-backend/internal/platform/password"
-	"github.com/zevoxa/cloud-kitchen-backend/internal/platform/token"
-	"github.com/zevoxa/cloud-kitchen-backend/internal/shared/apperr"
-	"github.com/zevoxa/cloud-kitchen-backend/internal/shared/clock"
-	"github.com/zevoxa/cloud-kitchen-backend/internal/shared/id"
+	"github.com/zevoxa/chowk-backend/internal/contracts"
+	"github.com/zevoxa/chowk-backend/internal/modules/identity/domain"
+	"github.com/zevoxa/chowk-backend/internal/platform/cache"
+	"github.com/zevoxa/chowk-backend/internal/platform/database"
+	"github.com/zevoxa/chowk-backend/internal/platform/eventbus"
+	"github.com/zevoxa/chowk-backend/internal/platform/httpx"
+	"github.com/zevoxa/chowk-backend/internal/platform/password"
+	"github.com/zevoxa/chowk-backend/internal/platform/token"
+	"github.com/zevoxa/chowk-backend/internal/shared/apperr"
+	"github.com/zevoxa/chowk-backend/internal/shared/clock"
+	"github.com/zevoxa/chowk-backend/internal/shared/id"
 )
 
 // AuthService implements registration, login, token refresh and logout.

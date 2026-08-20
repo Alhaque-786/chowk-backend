@@ -7,9 +7,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/zevoxa/cloud-kitchen-backend/internal/platform/logger"
-	"github.com/zevoxa/cloud-kitchen-backend/internal/shared/apperr"
-	"github.com/zevoxa/cloud-kitchen-backend/internal/shared/id"
+	"github.com/zevoxa/chowk-backend/internal/platform/logger"
+	"github.com/zevoxa/chowk-backend/internal/shared/apperr"
+	"github.com/zevoxa/chowk-backend/internal/shared/id"
 )
 
 // TokenVerifier is implemented by the token manager. Declaring it here rather

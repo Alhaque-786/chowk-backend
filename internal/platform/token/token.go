@@ -23,15 +23,15 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 
-	"github.com/zevoxa/cloud-kitchen-backend/internal/config"
-	"github.com/zevoxa/cloud-kitchen-backend/internal/platform/httpx"
-	"github.com/zevoxa/cloud-kitchen-backend/internal/shared/apperr"
-	"github.com/zevoxa/cloud-kitchen-backend/internal/shared/id"
+	"github.com/zevoxa/chowk-backend/internal/config"
+	"github.com/zevoxa/chowk-backend/internal/platform/httpx"
+	"github.com/zevoxa/chowk-backend/internal/shared/apperr"
+	"github.com/zevoxa/chowk-backend/internal/shared/id"
 )
 
 const (
-	issuer          = "cloud-kitchen"
-	audienceAPI     = "cloud-kitchen-api"
+	issuer          = "chowk"
+	audienceAPI     = "chowk-api"
 	refreshTokenLen = 32 // bytes of entropy
 )
 

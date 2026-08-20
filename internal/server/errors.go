@@ -1,6 +1,6 @@
 package server
 
-import "github.com/zevoxa/cloud-kitchen-backend/internal/shared/apperr"
+import "github.com/zevoxa/chowk-backend/internal/shared/apperr"
 
 // notFoundErr is the response for an unrouted path. Returning our standard
 // envelope rather than chi's bare text keeps the frontend's error handling

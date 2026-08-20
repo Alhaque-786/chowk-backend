@@ -1,9 +1,13 @@
-# Cloud Kitchen — Backend
+# Chowk — Backend
 
 Go 1.26 · PostgreSQL 16 · Redis 7 · chi
 
-A modular-monolith API for a cloud kitchen: customer ordering, kitchen
-operations, inventory, and the admin dashboard.
+A modular-monolith API for **Chowk**, a food-ordering platform: customer
+ordering, kitchen operations, inventory, and the admin dashboard.
+
+**Chowk** is the platform. **Khansama** is the first kitchen on it — structurally
+just a row in `merchants` with `is_first_party = true`, with no special-casing
+anywhere in the code. See [`docs/MARKETPLACE.md`](docs/MARKETPLACE.md).
 
 **Read [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) before writing code.** It
 explains why the structure is what it is; this file only tells you how to run it.

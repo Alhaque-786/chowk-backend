@@ -1,4 +1,4 @@
-module github.com/zevoxa/cloud-kitchen-backend
+module github.com/zevoxa/chowk-backend
 
 go 1.26.6
 

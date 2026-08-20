@@ -14,9 +14,9 @@ import (
 
 	"github.com/joho/godotenv"
 
-	"github.com/zevoxa/cloud-kitchen-backend/internal/config"
-	"github.com/zevoxa/cloud-kitchen-backend/internal/platform/logger"
-	"github.com/zevoxa/cloud-kitchen-backend/internal/server"
+	"github.com/zevoxa/chowk-backend/internal/config"
+	"github.com/zevoxa/chowk-backend/internal/platform/logger"
+	"github.com/zevoxa/chowk-backend/internal/server"
 )
 
 func main() {

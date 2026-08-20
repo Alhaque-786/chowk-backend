@@ -82,7 +82,7 @@ app       returns it unchanged, or wraps a driver error
 adapter   pgconn.PgError → apperr.Internal (cause retained for logs)
    ↑
 handler   httpx.Error(w, r, err)
-             ├─ RecordError()         → ck_errors_total{kind,code}
+             ├─ RecordError()         → chowk_errors_total{kind,code}
              ├─ tracing.RecordError() → span marked failed
              ├─ log (Error if 5xx, Info if 4xx)
              └─ statusFor(kind)       → the ONLY kind→HTTP mapping

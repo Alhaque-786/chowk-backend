@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/zevoxa/cloud-kitchen-backend/internal/platform/metrics"
-	"github.com/zevoxa/cloud-kitchen-backend/internal/shared/apperr"
+	"github.com/zevoxa/chowk-backend/internal/platform/metrics"
+	"github.com/zevoxa/chowk-backend/internal/shared/apperr"
 )
 
 // ErrBulkheadFull is returned when a dependency's concurrency budget is exhausted.

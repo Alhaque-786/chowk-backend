@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/zevoxa/cloud-kitchen-backend/internal/platform/httpx"
-	"github.com/zevoxa/cloud-kitchen-backend/internal/shared/apperr"
+	"github.com/zevoxa/chowk-backend/internal/platform/httpx"
+	"github.com/zevoxa/chowk-backend/internal/shared/apperr"
 )
 
 // IdempotencyStore is the Postgres-backed implementation of

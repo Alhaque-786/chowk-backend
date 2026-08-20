@@ -13,10 +13,10 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/zevoxa/cloud-kitchen-backend/internal/platform/cache"
-	"github.com/zevoxa/cloud-kitchen-backend/internal/platform/httpx"
-	"github.com/zevoxa/cloud-kitchen-backend/internal/platform/logger"
-	"github.com/zevoxa/cloud-kitchen-backend/internal/shared/apperr"
+	"github.com/zevoxa/chowk-backend/internal/platform/cache"
+	"github.com/zevoxa/chowk-backend/internal/platform/httpx"
+	"github.com/zevoxa/chowk-backend/internal/platform/logger"
+	"github.com/zevoxa/chowk-backend/internal/shared/apperr"
 )
 
 // Rule is one limit: N requests per window.

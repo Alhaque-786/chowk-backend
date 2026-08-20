@@ -18,10 +18,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/zevoxa/cloud-kitchen-backend/internal/platform/httpx"
-	"github.com/zevoxa/cloud-kitchen-backend/internal/shared/apperr"
-	"github.com/zevoxa/cloud-kitchen-backend/internal/shared/id"
-	"github.com/zevoxa/cloud-kitchen-backend/internal/shared/paging"
+	"github.com/zevoxa/chowk-backend/internal/platform/httpx"
+	"github.com/zevoxa/chowk-backend/internal/shared/apperr"
+	"github.com/zevoxa/chowk-backend/internal/shared/id"
+	"github.com/zevoxa/chowk-backend/internal/shared/paging"
 )
 
 // UserStatus is the account lifecycle state.

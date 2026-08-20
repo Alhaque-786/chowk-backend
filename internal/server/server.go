@@ -17,17 +17,17 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/cors"
 
-	"github.com/zevoxa/cloud-kitchen-backend/internal/config"
-	"github.com/zevoxa/cloud-kitchen-backend/internal/modules/identity"
-	"github.com/zevoxa/cloud-kitchen-backend/internal/platform/cache"
-	"github.com/zevoxa/cloud-kitchen-backend/internal/platform/database"
-	"github.com/zevoxa/cloud-kitchen-backend/internal/platform/eventbus"
-	"github.com/zevoxa/cloud-kitchen-backend/internal/platform/httpx"
-	"github.com/zevoxa/cloud-kitchen-backend/internal/platform/metrics"
-	"github.com/zevoxa/cloud-kitchen-backend/internal/platform/ratelimit"
-	"github.com/zevoxa/cloud-kitchen-backend/internal/platform/token"
-	"github.com/zevoxa/cloud-kitchen-backend/internal/platform/tracing"
-	"github.com/zevoxa/cloud-kitchen-backend/internal/shared/clock"
+	"github.com/zevoxa/chowk-backend/internal/config"
+	"github.com/zevoxa/chowk-backend/internal/modules/identity"
+	"github.com/zevoxa/chowk-backend/internal/platform/cache"
+	"github.com/zevoxa/chowk-backend/internal/platform/database"
+	"github.com/zevoxa/chowk-backend/internal/platform/eventbus"
+	"github.com/zevoxa/chowk-backend/internal/platform/httpx"
+	"github.com/zevoxa/chowk-backend/internal/platform/metrics"
+	"github.com/zevoxa/chowk-backend/internal/platform/ratelimit"
+	"github.com/zevoxa/chowk-backend/internal/platform/token"
+	"github.com/zevoxa/chowk-backend/internal/platform/tracing"
+	"github.com/zevoxa/chowk-backend/internal/shared/clock"
 )
 
 // Server owns the HTTP listener and every long-lived dependency.

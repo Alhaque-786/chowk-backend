@@ -47,7 +47,7 @@ var (
 
 	HTTPRequestsTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
-			Namespace: "ck",
+			Namespace: "chowk",
 			Subsystem: "http",
 			Name:      "requests_total",
 			Help:      "Total HTTP requests by route, method and status class.",
@@ -59,7 +59,7 @@ var (
 
 	HTTPRequestDuration = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
-			Namespace: "ck",
+			Namespace: "chowk",
 			Subsystem: "http",
 			Name:      "request_duration_seconds",
 			Help:      "HTTP request latency by route and method.",
@@ -70,7 +70,7 @@ var (
 
 	HTTPRequestsInFlight = prometheus.NewGauge(
 		prometheus.GaugeOpts{
-			Namespace: "ck",
+			Namespace: "chowk",
 			Subsystem: "http",
 			Name:      "requests_in_flight",
 			Help:      "Requests currently being served. Rising with flat throughput means saturation.",
@@ -84,7 +84,7 @@ var (
 	// log-grep exercise.
 	ErrorsTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
-			Namespace: "ck",
+			Namespace: "chowk",
 			Name:      "errors_total",
 			Help:      "Application errors by kind and stable error code.",
 		},
@@ -95,7 +95,7 @@ var (
 
 	DBQueryDuration = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
-			Namespace: "ck",
+			Namespace: "chowk",
 			Subsystem: "db",
 			Name:      "query_duration_seconds",
 			Help:      "Database query latency by operation.",
@@ -110,7 +110,7 @@ var (
 	// without this.
 	DBPoolStats = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
-			Namespace: "ck",
+			Namespace: "chowk",
 			Subsystem: "db",
 			Name:      "pool_connections",
 			Help:      "Connection pool state.",
@@ -120,7 +120,7 @@ var (
 
 	DBTxTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
-			Namespace: "ck",
+			Namespace: "chowk",
 			Subsystem: "db",
 			Name:      "transactions_total",
 			Help:      "Transactions by outcome. Watch serialization_failure for contention.",
@@ -132,7 +132,7 @@ var (
 
 	CacheOpsTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
-			Namespace: "ck",
+			Namespace: "chowk",
 			Subsystem: "cache",
 			Name:      "operations_total",
 			Help:      "Cache operations by result. hit/(hit+miss) is the ratio that matters.",
@@ -148,7 +148,7 @@ var (
 	// stopped while the API still looks perfectly healthy.
 	OutboxPendingGauge = prometheus.NewGauge(
 		prometheus.GaugeOpts{
-			Namespace: "ck",
+			Namespace: "chowk",
 			Subsystem: "outbox",
 			Name:      "pending_events",
 			Help:      "Events awaiting delivery. Sustained growth means the relay is stuck.",
@@ -157,7 +157,7 @@ var (
 
 	OutboxDeadLetterGauge = prometheus.NewGauge(
 		prometheus.GaugeOpts{
-			Namespace: "ck",
+			Namespace: "chowk",
 			Subsystem: "outbox",
 			Name:      "dead_letter_events",
 			Help:      "Events that exhausted retries. Any non-zero value needs a human.",
@@ -169,7 +169,7 @@ var (
 	// arrived a second ago.
 	OutboxLagSeconds = prometheus.NewGauge(
 		prometheus.GaugeOpts{
-			Namespace: "ck",
+			Namespace: "chowk",
 			Subsystem: "outbox",
 			Name:      "oldest_pending_age_seconds",
 			Help:      "Age of the oldest undelivered event.",
@@ -178,7 +178,7 @@ var (
 
 	EventHandlerDuration = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
-			Namespace: "ck",
+			Namespace: "chowk",
 			Subsystem: "events",
 			Name:      "handler_duration_seconds",
 			Help:      "Event handler latency by event and handler.",
@@ -189,7 +189,7 @@ var (
 
 	EventHandlerTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
-			Namespace: "ck",
+			Namespace: "chowk",
 			Subsystem: "events",
 			Name:      "handled_total",
 			Help:      "Event handler invocations by outcome.",
@@ -204,7 +204,7 @@ var (
 	// pool exhaustion and a full outage.
 	ExternalCallDuration = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
-			Namespace: "ck",
+			Namespace: "chowk",
 			Subsystem: "external",
 			Name:      "call_duration_seconds",
 			Help:      "Third-party call latency by dependency and operation.",
@@ -217,7 +217,7 @@ var (
 
 	ExternalCallTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
-			Namespace: "ck",
+			Namespace: "chowk",
 			Subsystem: "external",
 			Name:      "calls_total",
 			Help:      "Third-party calls by outcome.",
@@ -227,7 +227,7 @@ var (
 
 	CircuitBreakerState = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
-			Namespace: "ck",
+			Namespace: "chowk",
 			Subsystem: "external",
 			Name:      "circuit_breaker_state",
 			Help:      "Circuit breaker state: 0=closed, 1=half_open, 2=open.",
@@ -245,7 +245,7 @@ var (
 
 	OrdersTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
-			Namespace: "ck",
+			Namespace: "chowk",
 			Subsystem: "business",
 			Name:      "orders_total",
 			Help:      "Orders by terminal outcome and payment method.",
@@ -255,7 +255,7 @@ var (
 
 	OrderValueRupees = prometheus.NewHistogram(
 		prometheus.HistogramOpts{
-			Namespace: "ck",
+			Namespace: "chowk",
 			Subsystem: "business",
 			Name:      "order_value_rupees",
 			Help:      "Order value distribution, for AOV tracking.",
@@ -267,7 +267,7 @@ var (
 	// ETA should be derived from rather than a hardcoded guess.
 	OrderPrepDuration = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
-			Namespace: "ck",
+			Namespace: "chowk",
 			Subsystem: "business",
 			Name:      "order_prep_duration_seconds",
 			Help:      "Time from confirmed to ready, by kitchen.",
@@ -281,7 +281,7 @@ var (
 	// forecasting problem, not a code problem.
 	StockReservationTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
-			Namespace: "ck",
+			Namespace: "chowk",
 			Subsystem: "business",
 			Name:      "stock_reservations_total",
 			Help:      "Stock reservation attempts by outcome.",

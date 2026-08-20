@@ -10,7 +10,7 @@ import (
 
 	"golang.org/x/sync/singleflight"
 
-	"github.com/zevoxa/cloud-kitchen-backend/internal/platform/metrics"
+	"github.com/zevoxa/chowk-backend/internal/platform/metrics"
 )
 
 // Loader implements cache-aside with stampede protection.

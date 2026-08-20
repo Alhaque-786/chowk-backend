@@ -2,7 +2,7 @@
 SHELL := /bin/bash
 
 BINARY_DIR := bin
-MODULE     := github.com/zevoxa/cloud-kitchen-backend
+MODULE     := github.com/zevoxa/chowk-backend
 
 # Embed version metadata at link time so a running binary can report exactly what
 # it is. Without this, "which commit is in production" becomes guesswork.

@@ -10,8 +10,8 @@ import (
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/trace"
 
-	"github.com/zevoxa/cloud-kitchen-backend/internal/platform/metrics"
-	"github.com/zevoxa/cloud-kitchen-backend/internal/shared/apperr"
+	"github.com/zevoxa/chowk-backend/internal/platform/metrics"
+	"github.com/zevoxa/chowk-backend/internal/shared/apperr"
 )
 
 // Observe records metrics and opens a trace span for each request.

@@ -17,17 +17,17 @@ package identity
 import (
 	"net/http"
 
-	"github.com/zevoxa/cloud-kitchen-backend/internal/config"
-	identityhttp "github.com/zevoxa/cloud-kitchen-backend/internal/modules/identity/adapter/http"
-	identitypg "github.com/zevoxa/cloud-kitchen-backend/internal/modules/identity/adapter/postgres"
-	"github.com/zevoxa/cloud-kitchen-backend/internal/modules/identity/app"
-	"github.com/zevoxa/cloud-kitchen-backend/internal/modules/identity/domain"
-	"github.com/zevoxa/cloud-kitchen-backend/internal/platform/cache"
-	"github.com/zevoxa/cloud-kitchen-backend/internal/platform/database"
-	"github.com/zevoxa/cloud-kitchen-backend/internal/platform/eventbus"
-	"github.com/zevoxa/cloud-kitchen-backend/internal/platform/password"
-	"github.com/zevoxa/cloud-kitchen-backend/internal/platform/token"
-	"github.com/zevoxa/cloud-kitchen-backend/internal/shared/clock"
+	"github.com/zevoxa/chowk-backend/internal/config"
+	identityhttp "github.com/zevoxa/chowk-backend/internal/modules/identity/adapter/http"
+	identitypg "github.com/zevoxa/chowk-backend/internal/modules/identity/adapter/postgres"
+	"github.com/zevoxa/chowk-backend/internal/modules/identity/app"
+	"github.com/zevoxa/chowk-backend/internal/modules/identity/domain"
+	"github.com/zevoxa/chowk-backend/internal/platform/cache"
+	"github.com/zevoxa/chowk-backend/internal/platform/database"
+	"github.com/zevoxa/chowk-backend/internal/platform/eventbus"
+	"github.com/zevoxa/chowk-backend/internal/platform/password"
+	"github.com/zevoxa/chowk-backend/internal/platform/token"
+	"github.com/zevoxa/chowk-backend/internal/shared/clock"
 )
 
 // Deps is everything the module needs from outside. Making it an explicit struct
