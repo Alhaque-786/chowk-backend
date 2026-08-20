@@ -29,6 +29,7 @@ import (
 	"github.com/zevoxa/chowk-backend/internal/platform/database"
 	"github.com/zevoxa/chowk-backend/internal/platform/eventbus"
 	"github.com/zevoxa/chowk-backend/internal/platform/httpx"
+	"github.com/zevoxa/chowk-backend/internal/platform/lock"
 	"github.com/zevoxa/chowk-backend/internal/platform/metrics"
 	"github.com/zevoxa/chowk-backend/internal/platform/ratelimit"
 	"github.com/zevoxa/chowk-backend/internal/platform/token"
@@ -59,6 +60,8 @@ type Server struct {
 
 	// idempotency guards write endpoints against client retries.
 	idempotency *database.IdempotencyStore
+	// locker ensures exactly one worker replica runs each periodic job.
+	locker *lock.Locker
 }
 
 // New wires everything together. Order matters: infrastructure, then the event
@@ -107,6 +110,7 @@ func New(ctx context.Context, cfg *config.Config, log *slog.Logger) (*Server, er
 		tracer:     tracer,
 
 		idempotency: database.NewIdempotencyStore(db),
+		locker:      lock.New(redis),
 
 		identity: identity.New(identity.Deps{
 			Config: cfg, DB: db, Cache: redis, Events: outbox, Tokens: tokens, Clock: clk,
@@ -483,7 +487,59 @@ func (s *Server) RunWorker(ctx context.Context) error {
 
 	// Periodic maintenance. Kept in-process rather than as cron entries so it
 	// ships and scales with the app and cannot silently stop existing.
+	//
+	// Every job runs under a distributed lock, so with several worker replicas
+	// exactly one executes each tick. Without it, three replicas would each try to
+	// reap the same expired reservations and contend on the same rows.
 	go s.runPeriodic(ctx, "session-cleanup", time.Hour, s.cleanupExpiredSessions)
+
+	// Releases stock held by orders abandoned mid-payment. Without this, one
+	// customer who opens checkout and walks away keeps the last portion reserved
+	// indefinitely -- and because the order was never paid, nobody is watching it.
+	go s.runPeriodic(ctx, "abandoned-order-reaper", 5*time.Minute, func(ctx context.Context) error {
+		n, err := s.ordering.KitchenService().ReapAbandonedOrders(ctx)
+		if err != nil {
+			return err
+		}
+		if n > 0 {
+			s.log.Info("cancelled abandoned orders and released their stock", "count", n)
+		}
+		return nil
+	})
+
+	// Backstop for holds whose order vanished some other way. Runs more often than
+	// the order reaper because stock sitting reserved is directly lost revenue.
+	go s.runPeriodic(ctx, "reservation-reaper", 2*time.Minute, func(ctx context.Context) error {
+		n, err := s.inventory.Service().ReapExpiredReservations(ctx)
+		if err != nil {
+			return err
+		}
+		if n > 0 {
+			s.log.Info("released expired stock reservations", "orders", n)
+		}
+		return nil
+	})
+
+	// Money that was authorized but never captured is money at risk, and a payment
+	// stuck in `pending` for an hour means a webhook was missed. Read-only: it
+	// reports, it does not guess.
+	go s.runPeriodic(ctx, "payment-reconciliation", 15*time.Minute, func(ctx context.Context) error {
+		_, err := s.payment.Service().ReconcilePending(ctx, time.Hour)
+		return err
+	})
+
+	// Idempotency keys only need to outlive a client's retry window. Keeping them
+	// forever grows a table that is on the write path of every checkout.
+	go s.runPeriodic(ctx, "idempotency-prune", 6*time.Hour, func(ctx context.Context) error {
+		n, err := s.idempotency.PruneOlderThan(ctx, time.Now().UTC().Add(-24*time.Hour))
+		if err != nil {
+			return err
+		}
+		if n > 0 {
+			s.log.Info("pruned idempotency keys", "count", n)
+		}
+		return nil
+	})
 
 	<-ctx.Done()
 	s.log.Info("worker draining")
@@ -510,11 +566,21 @@ func (s *Server) runPeriodic(ctx context.Context, name string, every time.Durati
 			return
 		case <-ticker.C:
 			start := time.Now()
-			if err := job(ctx); err != nil {
+
+			// One replica per tick. The lock TTL is generous relative to the job so
+			// a slow run is not preempted, but bounded so a crashed holder does not
+			// block the job forever.
+			err := s.locker.WithLock(ctx, "job:"+name, every+time.Minute, job)
+			switch {
+			case errors.Is(err, lock.ErrNotAcquired):
+				// Another replica is running it. Not a problem, and not worth an
+				// Info line every tick.
+				continue
+			case err != nil:
 				s.log.Error("periodic job failed", "job", name, "error", err)
 				continue
 			}
-			s.log.Info("periodic job completed", "job", name, "duration_ms", time.Since(start).Milliseconds())
+			s.log.Debug("periodic job completed", "job", name, "duration_ms", time.Since(start).Milliseconds())
 		}
 	}
 }
