@@ -20,7 +20,9 @@ import (
 	"github.com/zevoxa/chowk-backend/internal/config"
 	"github.com/zevoxa/chowk-backend/internal/contracts"
 	"github.com/zevoxa/chowk-backend/internal/modules/catalog"
+	"github.com/zevoxa/chowk-backend/internal/modules/delivery"
 	"github.com/zevoxa/chowk-backend/internal/modules/identity"
+	"github.com/zevoxa/chowk-backend/internal/modules/inventory"
 	"github.com/zevoxa/chowk-backend/internal/modules/ordering"
 	"github.com/zevoxa/chowk-backend/internal/modules/payment"
 	"github.com/zevoxa/chowk-backend/internal/platform/cache"
@@ -48,10 +50,12 @@ type Server struct {
 
 	// Modules. Add each new module here and to routes() -- those are the only
 	// two places the composition root grows.
-	identity *identity.Module
-	catalog  *catalog.Module
-	ordering *ordering.Module
-	payment  *payment.Module
+	identity  *identity.Module
+	catalog   *catalog.Module
+	ordering  *ordering.Module
+	payment   *payment.Module
+	inventory *inventory.Module
+	delivery  *delivery.Module
 
 	// idempotency guards write endpoints against client retries.
 	idempotency *database.IdempotencyStore
@@ -112,6 +116,15 @@ func New(ctx context.Context, cfg *config.Config, log *slog.Logger) (*Server, er
 		}),
 	}
 
+	// These three are built before ordering, which depends on all their contracts.
+	srv.inventory = inventory.New(inventory.Deps{
+		Config: cfg, DB: db, Events: outbox, Clock: clk,
+	})
+	srv.delivery = delivery.New(delivery.Deps{
+		Config: cfg, DB: db, Events: outbox, Clock: clk,
+		Users: srv.identity.UserDirectory(),
+	})
+
 	// Payment before ordering: ordering depends on its PaymentInitiator.
 	srv.payment = payment.New(payment.Deps{
 		Config: cfg, DB: db, Events: outbox, Clock: clk,
@@ -133,10 +146,10 @@ func New(ctx context.Context, cfg *config.Config, log *slog.Logger) (*Server, er
 		Users:    srv.identity.UserDirectory(),
 
 		Payments: srv.payment.PaymentInitiator(),
+		Stock:    srv.inventory.StockReserver(),
+		Riders:   srv.delivery.RiderDispatcher(),
 
-		Stock:     contracts.NullStockReserver{},      // TODO: inventory module
 		Discounts: contracts.NullDiscountCalculator{}, // TODO: promotion module
-		Riders:    contracts.NullRiderDispatcher{},    // TODO: delivery module
 	})
 
 	// Every module registers its event handlers before the relay starts, so no
@@ -145,6 +158,8 @@ func New(ctx context.Context, cfg *config.Config, log *slog.Logger) (*Server, er
 	srv.catalog.RegisterSubscribers(dispatcher)
 	srv.ordering.RegisterSubscribers(dispatcher)
 	srv.payment.RegisterSubscribers(dispatcher)
+	srv.inventory.RegisterSubscribers(dispatcher)
+	srv.delivery.RegisterSubscribers(dispatcher)
 
 	srv.http = &http.Server{
 		Addr:         fmt.Sprintf(":%d", cfg.Server.Port),
@@ -207,6 +222,7 @@ func (s *Server) routes(tokens *token.Manager, limiter *ratelimit.Limiter) http.
 	// dropping payment notifications, and a dropped capture is an order the
 	// customer paid for that nobody cooks.
 	r.Mount("/webhooks/payment", s.payment.WebhookRoutes())
+	r.Mount("/webhooks/delivery", s.delivery.WebhookRoutes())
 
 	r.Route("/api/v1", func(r chi.Router) {
 		r.Use(limiter.Middleware(ratelimit.RuleGlobal))
@@ -241,6 +257,7 @@ func (s *Server) routes(tokens *token.Manager, limiter *ratelimit.Limiter) http.
 
 			r.Mount("/", s.ordering.CustomerRoutes())
 			r.Mount("/payments", s.payment.CustomerRoutes())
+			r.Mount("/deliveries", s.delivery.CustomerRoutes())
 			r.Mount("/addresses", s.identity.AddressRoutes())
 		})
 
@@ -250,6 +267,8 @@ func (s *Server) routes(tokens *token.Manager, limiter *ratelimit.Limiter) http.
 			r.Use(httpx.RequireRole(httpx.RoleKitchenStaff, httpx.RoleKitchenAdmin))
 			r.Mount("/kitchen/catalog", s.catalog.KitchenRoutes())
 			r.Mount("/kitchen", s.ordering.KitchenRoutes())
+			r.Mount("/kitchen/inventory", s.inventory.KitchenRoutes())
+			r.Mount("/kitchen/delivery", s.delivery.KitchenRoutes())
 		})
 
 		// --- Admin dashboard ---

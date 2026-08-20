@@ -321,16 +321,7 @@ func (s *CheckoutService) Checkout(ctx context.Context, in CheckoutInput) (*Chec
 		// Enforced here rather than in step 2 because the subtotal is only known
 		// once prices are resolved.
 
-		// 3e. Reserve stock. Inside the transaction and using row locks, so two
-		// customers cannot both buy the last portion.
-		if err := s.stock.Reserve(ctx, order.ID, cart.KitchenID, reservations); err != nil {
-			metrics.StockReservationTotal.WithLabelValues("insufficient").Inc()
-			return err
-		}
-		reservedOK = true
-		metrics.StockReservationTotal.WithLabelValues("reserved").Inc()
-
-		// 3f. Walk the order into its starting status, COLLECTING the audit events.
+		// 3e. Walk the order into its starting status, COLLECTING the audit events.
 		//
 		// The events must be captured and persisted, not discarded. Without them
 		// the order has no trail for its own creation, and "when did this become
@@ -358,7 +349,7 @@ func (s *CheckoutService) Checkout(ctx context.Context, in CheckoutInput) (*Chec
 		promised := now.Add(s.estimatePrepAndDelivery(order))
 		order.PromisedAt = &promised
 
-		// 3g. Persist the order, then its audit trail. Order first, because the
+		// 3f. Persist the order, then its audit trail. Order first, because the
 		// events reference it by foreign key.
 		if err := s.orders.Create(ctx, order); err != nil {
 			return err
@@ -368,6 +359,26 @@ func (s *CheckoutService) Checkout(ctx context.Context, in CheckoutInput) (*Chec
 				return err
 			}
 		}
+
+		// 3g. Reserve stock — AFTER the order row exists.
+		//
+		// The ordering of these two statements is a foreign-key requirement, not a
+		// style choice: stock_reservations.order_id references orders(id), so
+		// reserving first fails with a constraint violation. It is worth stating
+		// because the natural reading of a saga is "check resources, then commit",
+		// and that instinct is wrong here.
+		//
+		// Atomicity is unaffected — both statements are in the same transaction, so
+		// an insufficient-stock failure still rolls the order back and leaves
+		// nothing behind. Only the statement order changes.
+		//
+		// This is where two customers racing for the last portion serialise: the
+		// reservation takes row locks on the ingredients, ordered by id to avoid
+		// deadlock, and the loser gets INSUFFICIENT_STOCK.
+		if err := s.stock.Reserve(ctx, order.ID, cart.KitchenID, reservations); err != nil {
+			return err
+		}
+		reservedOK = true
 
 		// 3h. Outbox event, same transaction. Either the order and its event both
 		// exist, or neither does.
