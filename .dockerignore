@@ -1,0 +1,22 @@
+# Keep the build context small: everything here would otherwise be uploaded to
+# the Docker daemon on every build, and node_modules-sized contexts make builds
+# feel broken.
+.git
+.github
+bin/
+*.md
+docs/
+deploy/
+
+# Never ship secrets into an image layer. Even if deleted in a later layer, the
+# earlier layer still contains them and `docker history` will show it.
+.env
+.env.*
+!.env.example
+
+coverage.out
+*.test
+.DS_Store
+.idea/
+.vscode/
+docker-compose.yml

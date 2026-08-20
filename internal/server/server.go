@@ -23,8 +23,10 @@ import (
 	"github.com/zevoxa/cloud-kitchen-backend/internal/platform/database"
 	"github.com/zevoxa/cloud-kitchen-backend/internal/platform/eventbus"
 	"github.com/zevoxa/cloud-kitchen-backend/internal/platform/httpx"
+	"github.com/zevoxa/cloud-kitchen-backend/internal/platform/metrics"
 	"github.com/zevoxa/cloud-kitchen-backend/internal/platform/ratelimit"
 	"github.com/zevoxa/cloud-kitchen-backend/internal/platform/token"
+	"github.com/zevoxa/cloud-kitchen-backend/internal/platform/tracing"
 	"github.com/zevoxa/cloud-kitchen-backend/internal/shared/clock"
 )
 
@@ -38,6 +40,7 @@ type Server struct {
 
 	dispatcher *eventbus.Dispatcher
 	relay      *eventbus.Relay
+	tracer     *tracing.Provider
 
 	// Modules. Add each new module here and to routes() -- those are the only
 	// two places the composition root grows.
@@ -47,6 +50,19 @@ type Server struct {
 // New wires everything together. Order matters: infrastructure, then the event
 // bus, then modules, then routes.
 func New(ctx context.Context, cfg *config.Config, log *slog.Logger) (*Server, error) {
+	// Tracing first, so spans cover the rest of startup and a slow migration or
+	// pool warm-up is visible rather than invisible.
+	tracer, err := tracing.Init(ctx, tracing.Config{
+		Enabled:     cfg.Observ.TracingEnabled,
+		Endpoint:    cfg.Observ.TracingEndpoint,
+		SampleRatio: cfg.Observ.TracingSampleRatio,
+		Environment: string(cfg.Env),
+		Version:     cfg.Observ.Version,
+	})
+	if err != nil {
+		return nil, err
+	}
+
 	db, err := database.Connect(ctx, cfg.Postgres)
 	if err != nil {
 		return nil, err
@@ -83,6 +99,7 @@ func New(ctx context.Context, cfg *config.Config, log *slog.Logger) (*Server, er
 		cache:      redis,
 		dispatcher: dispatcher,
 		relay:      relay,
+		tracer:     tracer,
 		identity:   identity.New(deps),
 	}
 
@@ -117,6 +134,10 @@ func (s *Server) routes(tokens *token.Manager, limiter *ratelimit.Limiter) http.
 	// Recoverer inside the logger so a panic is still logged as a request.
 	r.Use(httpx.RequestID)
 	r.Use(httpx.SecurityHeaders)
+	// Observe sits outside the logger so its span wraps the whole request, and
+	// outside Recoverer so a panicking handler is still counted as a 5xx rather
+	// than vanishing from the metrics entirely.
+	r.Use(httpx.Observe)
 	r.Use(httpx.RequestLogger(s.log))
 	r.Use(httpx.Recoverer)
 	r.Use(cors.Handler(cors.Options{
@@ -133,6 +154,13 @@ func (s *Server) routes(tokens *token.Manager, limiter *ratelimit.Limiter) http.
 	// orchestrator must always be able to reach them.
 	r.Get("/health", s.handleHealth)
 	r.Get("/ready", s.handleReady)
+
+	// /metrics is unauthenticated but must NEVER be internet-reachable: it
+	// exposes internal topology and traffic shape. Restrict it at the ingress or
+	// bind it to a separate port in production.
+	if s.cfg.Observ.MetricsEnabled {
+		r.Handle("/metrics", metrics.Handler())
+	}
 
 	r.Route("/api/v1", func(r chi.Router) {
 		r.Use(limiter.Middleware(ratelimit.RuleGlobal))
@@ -224,6 +252,8 @@ func (s *Server) Run(ctx context.Context) error {
 		}
 	}()
 
+	go s.collectRuntimeMetrics(relayCtx)
+
 	errCh := make(chan error, 1)
 	go func() {
 		s.log.Info("http server listening",
@@ -259,6 +289,12 @@ func (s *Server) shutdown() error {
 		_ = s.http.Close()
 	}
 
+	// Flush spans before closing anything else, or the traces covering this very
+	// shutdown -- often the ones you need after a bad deploy -- are lost.
+	if err := s.tracer.Shutdown(ctx); err != nil {
+		s.log.Error("flushing traces failed", "error", err)
+	}
+
 	if err := s.cache.Close(); err != nil {
 		s.log.Error("closing redis failed", "error", err)
 	}
@@ -266,6 +302,67 @@ func (s *Server) shutdown() error {
 
 	s.log.Info("shutdown complete")
 	return shutdownErr
+}
+
+// collectRuntimeMetrics periodically publishes gauges that must be sampled
+// rather than incremented: pool occupancy and outbox backlog.
+//
+// The outbox gauges are the most important operational signal in the system. If
+// the relay stalls, the API stays perfectly healthy while every downstream side
+// effect silently stops -- notifications, stock release, analytics. Without these
+// gauges that failure is invisible until a customer complains.
+func (s *Server) collectRuntimeMetrics(ctx context.Context) {
+	ticker := time.NewTicker(15 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			stat := s.db.Pool().Stat()
+			metrics.DBPoolStats.WithLabelValues("acquired").Set(float64(stat.AcquiredConns()))
+			metrics.DBPoolStats.WithLabelValues("idle").Set(float64(stat.IdleConns()))
+			metrics.DBPoolStats.WithLabelValues("total").Set(float64(stat.TotalConns()))
+			metrics.DBPoolStats.WithLabelValues("max").Set(float64(stat.MaxConns()))
+
+			s.collectOutboxMetrics(ctx)
+		}
+	}
+}
+
+func (s *Server) collectOutboxMetrics(ctx context.Context) {
+	queryCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	// One query for all three gauges. FILTER is cheaper than three separate
+	// scans, and this runs on every replica every 15s.
+	const q = `
+		SELECT
+			count(*) FILTER (WHERE status = 'pending'),
+			count(*) FILTER (WHERE status = 'dead_letter'),
+			COALESCE(EXTRACT(EPOCH FROM (now() - min(occurred_at) FILTER (WHERE status = 'pending'))), 0)
+		FROM outbox_events
+		WHERE status IN ('pending', 'dead_letter')`
+
+	var pending, deadLetter int64
+	var lagSeconds float64
+
+	if err := s.db.Q(queryCtx).QueryRow(queryCtx, q).Scan(&pending, &deadLetter, &lagSeconds); err != nil {
+		s.log.Error("collecting outbox metrics failed", "error", err)
+		return
+	}
+
+	metrics.OutboxPendingGauge.Set(float64(pending))
+	metrics.OutboxDeadLetterGauge.Set(float64(deadLetter))
+	metrics.OutboxLagSeconds.Set(lagSeconds)
+
+	// Dead letters are money and customer trust sitting in a table doing
+	// nothing. Log loudly so an alert can fire on the log too, not only on the
+	// metric.
+	if deadLetter > 0 {
+		s.log.Error("outbox has dead-lettered events requiring manual review", "count", deadLetter)
+	}
 }
 
 // Dispatcher is exposed so the worker binary can reuse the same wiring.

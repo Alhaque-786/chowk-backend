@@ -16,6 +16,7 @@ import (
 	"strings"
 
 	"github.com/zevoxa/cloud-kitchen-backend/internal/platform/logger"
+	"github.com/zevoxa/cloud-kitchen-backend/internal/platform/tracing"
 	"github.com/zevoxa/cloud-kitchen-backend/internal/shared/apperr"
 )
 
@@ -65,6 +66,14 @@ func Error(w http.ResponseWriter, r *http.Request, err error) {
 	if !ok {
 		appErr = apperr.Internal(err)
 	}
+
+	// Count every error response exactly once, here, so no handler has to
+	// remember to instrument its own failure paths.
+	RecordError(appErr)
+
+	// Mark the trace span failed, or a trace shows a span that took 3 seconds
+	// and returned with no indication anything went wrong.
+	tracing.RecordError(r.Context(), appErr)
 
 	status := statusFor(appErr.Kind)
 	if status >= http.StatusInternalServerError {

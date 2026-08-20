@@ -61,12 +61,23 @@ func Parse(s string, c Currency) (Amount, error) {
 	}
 
 	s = strings.TrimSpace(s)
+	// An empty string must NOT parse as zero. An empty form field or a missing
+	// JSON value silently becoming ₹0.00 is how an order gets charged the wrong
+	// amount, and it fails silently in exactly the place that matters most.
+	if s == "" {
+		return Amount{}, fmt.Errorf("money: parse empty string")
+	}
+
 	neg := strings.HasPrefix(s, "-")
 	s = strings.TrimPrefix(strings.TrimPrefix(s, "-"), "+")
 
 	whole, frac, _ := strings.Cut(s, ".")
 	if whole == "" {
 		whole = "0"
+	}
+	// Reject a lone sign or a bare "." for the same reason.
+	if whole == "0" && frac == "" && s != "0" {
+		return Amount{}, fmt.Errorf("money: parse %q: no digits", s)
 	}
 	// Pad or truncate the fraction to exactly the currency's precision.
 	if int32(len(frac)) > exp {

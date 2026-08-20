@@ -83,6 +83,22 @@ type StorageConfig struct {
 type ObservabilityConfig struct {
 	LogLevel  string
 	LogFormat string // "json" | "text"
+
+	// MetricsEnabled exposes /metrics. Kept behind a flag so the endpoint can be
+	// disabled if it is ever routed somewhere publicly reachable.
+	MetricsEnabled bool
+
+	TracingEnabled bool
+	// OTLP gRPC collector, e.g. "localhost:4317".
+	TracingEndpoint string
+	// Ratio of root traces to sample. Must be well below 1.0 in production --
+	// tracing every request costs more in egress and storage than the app costs
+	// to run.
+	TracingSampleRatio float64
+
+	// Version is stamped onto traces and metrics so a latency regression can be
+	// attributed to a specific deploy. Injected at build time via -ldflags.
+	Version string
 }
 
 // Load reads configuration from the environment. It returns an error listing
@@ -151,7 +167,27 @@ func Load() (*Config, error) {
 		Observ: ObservabilityConfig{
 			LogLevel:  optString("LOG_LEVEL", "info"),
 			LogFormat: optString("LOG_FORMAT", "json"),
+
+			MetricsEnabled:  optBool("METRICS_ENABLED", true),
+			TracingEnabled:  optBool("TRACING_ENABLED", false),
+			TracingEndpoint: optString("TRACING_ENDPOINT", ""),
+			// 100% locally so every request is inspectable while developing;
+			// production must lower this.
+			TracingSampleRatio: optFloat("TRACING_SAMPLE_RATIO", 1.0),
+			Version:            optString("APP_VERSION", "dev"),
 		},
+	}
+
+	// A sample ratio outside [0,1] silently disables or over-samples tracing, so
+	// clamp rather than trusting the input.
+	if cfg.Observ.TracingSampleRatio < 0 {
+		cfg.Observ.TracingSampleRatio = 0
+	}
+	if cfg.Observ.TracingSampleRatio > 1 {
+		cfg.Observ.TracingSampleRatio = 1
+	}
+	if cfg.Observ.TracingEnabled && cfg.Observ.TracingEndpoint == "" {
+		problems = append(problems, "TRACING_ENDPOINT is required when TRACING_ENABLED=true")
 	}
 
 	// A short secret is worse than no secret because it looks configured.
@@ -185,6 +221,22 @@ func optString(key, fallback string) string {
 
 func optInt(key string, fallback int) int {
 	v, err := strconv.Atoi(strings.TrimSpace(os.Getenv(key)))
+	if err != nil {
+		return fallback
+	}
+	return v
+}
+
+func optBool(key string, fallback bool) bool {
+	v, err := strconv.ParseBool(strings.TrimSpace(os.Getenv(key)))
+	if err != nil {
+		return fallback
+	}
+	return v
+}
+
+func optFloat(key string, fallback float64) float64 {
+	v, err := strconv.ParseFloat(strings.TrimSpace(os.Getenv(key)), 64)
 	if err != nil {
 		return fallback
 	}
