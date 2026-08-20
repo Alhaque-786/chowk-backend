@@ -1,0 +1,67 @@
+# Local development dependencies.
+#
+# The app itself runs on the host via `make run`, not in a container: you get
+# instant rebuilds and a working debugger, which is worth more day-to-day than
+# environment parity. Parity is the Dockerfile's job, exercised in CI.
+
+services:
+  postgres:
+    # Pinned to a minor version, not `16` or `latest`. An unpinned image means a
+    # `docker compose pull` can silently change the database under you, and
+    # someone's machine ends up on a different version than production.
+    image: postgres:16.4-alpine
+    container_name: ck-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: cloudkitchen
+      POSTGRES_PASSWORD: localdev
+      POSTGRES_DB: cloudkitchen
+      # Collation and encoding are set at initdb time and cannot be changed
+      # later without a dump/restore. Pin them so index ordering matches prod.
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    command:
+      # Log slow queries in development, so an accidental sequential scan is
+      # noticed while writing the code and not after launch.
+      - "postgres"
+      - "-c"
+      - "log_min_duration_statement=200"
+      - "-c"
+      - "max_connections=100"
+    healthcheck:
+      # The -U flag matters: without it pg_isready checks the root role and
+      # reports ready before the app's database actually exists.
+      test: ["CMD-SHELL", "pg_isready -U cloudkitchen -d cloudkitchen"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  redis:
+    image: redis:7.4-alpine
+    container_name: ck-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    command:
+      - "redis-server"
+      - "--maxmemory"
+      - "256mb"
+      # Evict the least-recently-used key when full rather than returning errors.
+      # Everything we keep in Redis (carts, OTPs, rate counters, cached menus) is
+      # reconstructible, so eviction is correct and an OOM error is not.
+      - "--maxmemory-policy"
+      - "allkeys-lru"
+      - "--appendonly"
+      - "no"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  postgres_data:
