@@ -489,6 +489,101 @@ func (s *CheckoutService) estimatePrepAndDelivery(order *domain.Order) time.Dura
 	return base + base*bufferPercent/100
 }
 
+// MarkPaid promotes a prepaid order to `placed` once money has landed.
+//
+// Called from the payment.captured event handler. This is the ONLY path by which
+// a prepaid order becomes visible to the kitchen — if it were driven by the
+// client instead, a failed UPI payment would result in food cooked for free.
+//
+// Idempotent by requirement, not by courtesy: outbox delivery is at-least-once,
+// so a redelivered payment.captured MUST succeed rather than error, or the relay
+// retries it forever and eventually dead-letters a perfectly good payment.
+func (s *CheckoutService) MarkPaid(ctx context.Context, orderID, paymentID id.ID) error {
+	now := s.clock.Now()
+
+	return s.db.InTx(ctx, func(ctx context.Context) error {
+		order, err := s.orders.FindByIDForUpdate(ctx, orderID)
+		if err != nil {
+			// A payment for an order we do not have is not retryable — logging and
+			// succeeding is better than an infinite redelivery loop.
+			if apperr.KindOf(err) == apperr.KindNotFound {
+				return nil
+			}
+			return err
+		}
+
+		// Already promoted by an earlier delivery of this event. Success, not error.
+		if order.Status != domain.StatusPendingPayment {
+			return nil
+		}
+
+		event, err := order.TransitionTo(domain.StatusPlaced, "payment captured", nil, "system", now)
+		if err != nil {
+			return err
+		}
+		order.PaymentID = &paymentID
+
+		if err := s.orders.Update(ctx, order); err != nil {
+			return err
+		}
+		if err := s.orders.AppendStatusEvent(ctx, event); err != nil {
+			return err
+		}
+		return s.publishStatusChange(ctx, order, contracts.EventOrderPlaced,
+			domain.StatusPendingPayment, "payment captured", nil, "system", now)
+	})
+}
+
+// MarkPaymentFailed cancels an order whose payment was declined, releasing its
+// stock and coupon.
+//
+// Also idempotent: a redelivered payment.failed for an already-cancelled order is
+// a no-op.
+func (s *CheckoutService) MarkPaymentFailed(ctx context.Context, orderID id.ID, reason string) error {
+	now := s.clock.Now()
+
+	return s.db.InTx(ctx, func(ctx context.Context) error {
+		order, err := s.orders.FindByIDForUpdate(ctx, orderID)
+		if err != nil {
+			if apperr.KindOf(err) == apperr.KindNotFound {
+				return nil
+			}
+			return err
+		}
+
+		// Only an unpaid order may be failed this way. A captured payment arriving
+		// after a failure event (out-of-order delivery) must not cancel a paid
+		// order — the money is real and the food should be cooked.
+		if order.Status != domain.StatusPendingPayment {
+			return nil
+		}
+
+		event, err := order.TransitionTo(domain.StatusCancelled, reason, nil, "system", now)
+		if err != nil {
+			return err
+		}
+		if err := s.orders.Update(ctx, order); err != nil {
+			return err
+		}
+		if err := s.orders.AppendStatusEvent(ctx, event); err != nil {
+			return err
+		}
+
+		// Compensations, in the same transaction as the cancellation.
+		if err := s.stock.Release(ctx, order.ID); err != nil {
+			return err
+		}
+		if order.CouponID != nil {
+			if err := s.discounts.ReleaseRedemption(ctx, order.ID); err != nil {
+				return err
+			}
+		}
+
+		return s.publishStatusChange(ctx, order, contracts.EventOrderCancelled,
+			domain.StatusPendingPayment, reason, nil, "system", now)
+	})
+}
+
 // GetOrder returns an order the caller is entitled to see.
 func (s *CheckoutService) GetOrder(ctx context.Context, userID, orderID id.ID) (*domain.Order, error) {
 	order, err := s.orders.FindByID(ctx, orderID)

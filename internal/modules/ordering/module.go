@@ -11,6 +11,7 @@
 package ordering
 
 import (
+	"context"
 	"net/http"
 
 	"github.com/zevoxa/chowk-backend/internal/config"
@@ -95,12 +96,38 @@ func (m *Module) KitchenRoutes() http.Handler { return m.handler.KitchenRoutes()
 // RegisterSubscribers wires ordering's event handlers.
 //
 // Ordering consumes payment events to advance an order past pending_payment. It
-// does NOT call the payment module to ask — payment tells it, which is what keeps
-// the dependency one-directional.
-func (m *Module) RegisterSubscribers(_ eventbus.Subscriber) {
-	// payment.captured -> placed and payment.failed -> cancelled are registered
-	// once the payment module exists. Declaring the hook now means adding them is
-	// a one-line change here rather than new plumbing through the server.
+// does NOT ask the payment module — payment tells it. That inversion is what
+// keeps the dependency one-directional and lets either module move to its own
+// service.
+//
+// Both handlers are idempotent, because outbox delivery is at-least-once: a
+// redelivered payment.captured must not error, it must recognise the order is
+// already placed and succeed.
+func (m *Module) RegisterSubscribers(sub eventbus.Subscriber) {
+	sub.Subscribe(contracts.EventPaymentCaptured, "ordering.confirm_paid_order",
+		func(ctx context.Context, e eventbus.Event) error {
+			payload, err := eventbus.Decode[contracts.PaymentPayload](e)
+			if err != nil {
+				return err
+			}
+			// This is the ONLY path by which a prepaid order becomes visible to the
+			// kitchen. Money must land first, or a failed UPI payment results in
+			// food cooked for free.
+			return m.checkoutService.MarkPaid(ctx, payload.OrderID, payload.PaymentID)
+		})
+
+	sub.Subscribe(contracts.EventPaymentFailed, "ordering.cancel_unpaid_order",
+		func(ctx context.Context, e eventbus.Event) error {
+			payload, err := eventbus.Decode[contracts.PaymentPayload](e)
+			if err != nil {
+				return err
+			}
+			reason := payload.FailureReason
+			if reason == "" {
+				reason = "payment failed"
+			}
+			return m.checkoutService.MarkPaymentFailed(ctx, payload.OrderID, reason)
+		})
 }
 
 // KitchenService is exposed so the worker can run the abandoned-order reaper.

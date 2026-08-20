@@ -22,6 +22,7 @@ import (
 	"github.com/zevoxa/chowk-backend/internal/modules/catalog"
 	"github.com/zevoxa/chowk-backend/internal/modules/identity"
 	"github.com/zevoxa/chowk-backend/internal/modules/ordering"
+	"github.com/zevoxa/chowk-backend/internal/modules/payment"
 	"github.com/zevoxa/chowk-backend/internal/platform/cache"
 	"github.com/zevoxa/chowk-backend/internal/platform/database"
 	"github.com/zevoxa/chowk-backend/internal/platform/eventbus"
@@ -50,6 +51,7 @@ type Server struct {
 	identity *identity.Module
 	catalog  *catalog.Module
 	ordering *ordering.Module
+	payment  *payment.Module
 
 	// idempotency guards write endpoints against client retries.
 	idempotency *database.IdempotencyStore
@@ -110,6 +112,12 @@ func New(ctx context.Context, cfg *config.Config, log *slog.Logger) (*Server, er
 		}),
 	}
 
+	// Payment before ordering: ordering depends on its PaymentInitiator.
+	srv.payment = payment.New(payment.Deps{
+		Config: cfg, DB: db, Events: outbox, Clock: clk,
+		Users: srv.identity.UserDirectory(),
+	})
+
 	// Ordering is built last because it depends on the others' contracts.
 	//
 	// Null adapters stand in for modules that do not exist yet (see
@@ -124,9 +132,10 @@ func New(ctx context.Context, cfg *config.Config, log *slog.Logger) (*Server, er
 		Kitchens: srv.catalog.KitchenAvailability(),
 		Users:    srv.identity.UserDirectory(),
 
+		Payments: srv.payment.PaymentInitiator(),
+
 		Stock:     contracts.NullStockReserver{},      // TODO: inventory module
 		Discounts: contracts.NullDiscountCalculator{}, // TODO: promotion module
-		Payments:  contracts.NullPaymentInitiator{},   // TODO: payment module
 		Riders:    contracts.NullRiderDispatcher{},    // TODO: delivery module
 	})
 
@@ -135,6 +144,7 @@ func New(ctx context.Context, cfg *config.Config, log *slog.Logger) (*Server, er
 	srv.identity.RegisterSubscribers(dispatcher)
 	srv.catalog.RegisterSubscribers(dispatcher)
 	srv.ordering.RegisterSubscribers(dispatcher)
+	srv.payment.RegisterSubscribers(dispatcher)
 
 	srv.http = &http.Server{
 		Addr:         fmt.Sprintf(":%d", cfg.Server.Port),
@@ -191,6 +201,13 @@ func (s *Server) routes(tokens *token.Manager, limiter *ratelimit.Limiter) http.
 		r.Handle("/metrics", metrics.Handler())
 	}
 
+	// Payment webhooks are public by necessity (a gateway has no JWT) and
+	// authenticated by HMAC signature inside the handler. Mounted OUTSIDE the
+	// rate-limited /api/v1 subtree on purpose: throttling a gateway means
+	// dropping payment notifications, and a dropped capture is an order the
+	// customer paid for that nobody cooks.
+	r.Mount("/webhooks/payment", s.payment.WebhookRoutes())
+
 	r.Route("/api/v1", func(r chi.Router) {
 		r.Use(limiter.Middleware(ratelimit.RuleGlobal))
 
@@ -223,6 +240,7 @@ func (s *Server) routes(tokens *token.Manager, limiter *ratelimit.Limiter) http.
 			r.Use(limiter.Middleware(ratelimit.RuleCheckout))
 
 			r.Mount("/", s.ordering.CustomerRoutes())
+			r.Mount("/payments", s.payment.CustomerRoutes())
 			r.Mount("/addresses", s.identity.AddressRoutes())
 		})
 
