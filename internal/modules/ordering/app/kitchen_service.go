@@ -25,6 +25,10 @@ type KitchenOrderService struct {
 	stock    contracts.StockReserver
 	riders   contracts.RiderDispatcher
 	payments contracts.PaymentInitiator
+	// kitchens resolves the kitchen NAME for event payloads. Without it every
+	// status notification says "the kitchen" instead of "Khansama", which reads
+	// like a placeholder someone forgot to fill -- because it is one.
+	kitchens contracts.KitchenAvailability
 
 	events eventbus.Publisher
 	clock  clock.Clock
@@ -36,12 +40,13 @@ func NewKitchenOrderService(
 	stock contracts.StockReserver,
 	riders contracts.RiderDispatcher,
 	payments contracts.PaymentInitiator,
+	kitchens contracts.KitchenAvailability,
 	events eventbus.Publisher,
 	clk clock.Clock,
 ) *KitchenOrderService {
 	return &KitchenOrderService{
 		db: db, orders: orders, stock: stock, riders: riders,
-		payments: payments, events: events, clock: clk,
+		payments: payments, kitchens: kitchens, events: events, clock: clk,
 	}
 }
 
@@ -194,11 +199,19 @@ func (s *KitchenOrderService) publishStatus(
 	actorRole string,
 	now time.Time,
 ) error {
+	// Snapshot the name onto the event so consumers need not call back for it.
+	// Best effort: a lookup failure must not stop the kitchen marking food ready.
+	kitchenName, nameErr := s.kitchens.Name(ctx, order.KitchenID)
+	if nameErr != nil || kitchenName == "" {
+		kitchenName = "The kitchen"
+	}
+
 	payload := contracts.OrderStatusChangedPayload{
 		OrderID:     order.ID,
 		OrderNumber: order.Number,
 		UserID:      order.UserID,
 		KitchenID:   order.KitchenID,
+		KitchenName: kitchenName,
 		FromStatus:  string(from),
 		ToStatus:    string(order.Status),
 		Reason:      reason,

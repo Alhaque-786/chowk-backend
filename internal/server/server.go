@@ -23,6 +23,7 @@ import (
 	"github.com/zevoxa/chowk-backend/internal/modules/delivery"
 	"github.com/zevoxa/chowk-backend/internal/modules/identity"
 	"github.com/zevoxa/chowk-backend/internal/modules/inventory"
+	"github.com/zevoxa/chowk-backend/internal/modules/notification"
 	"github.com/zevoxa/chowk-backend/internal/modules/ordering"
 	"github.com/zevoxa/chowk-backend/internal/modules/payment"
 	"github.com/zevoxa/chowk-backend/internal/platform/cache"
@@ -51,12 +52,13 @@ type Server struct {
 
 	// Modules. Add each new module here and to routes() -- those are the only
 	// two places the composition root grows.
-	identity  *identity.Module
-	catalog   *catalog.Module
-	ordering  *ordering.Module
-	payment   *payment.Module
-	inventory *inventory.Module
-	delivery  *delivery.Module
+	identity     *identity.Module
+	catalog      *catalog.Module
+	ordering     *ordering.Module
+	payment      *payment.Module
+	inventory    *inventory.Module
+	delivery     *delivery.Module
+	notification *notification.Module
 
 	// idempotency guards write endpoints against client retries.
 	idempotency *database.IdempotencyStore
@@ -129,6 +131,14 @@ func New(ctx context.Context, cfg *config.Config, log *slog.Logger) (*Server, er
 		Users: srv.identity.UserDirectory(),
 	})
 
+	// Notification subscribes to the order lifecycle and is subscribed to by
+	// nothing. Deleting it would not change a line of ordering, payment or
+	// inventory -- which is the property that makes it independently deployable.
+	srv.notification = notification.New(notification.Deps{
+		Config: cfg, DB: db, Log: log, Clock: clk,
+		Users: srv.identity.UserDirectory(),
+	})
+
 	// Payment before ordering: ordering depends on its PaymentInitiator.
 	srv.payment = payment.New(payment.Deps{
 		Config: cfg, DB: db, Events: outbox, Clock: clk,
@@ -164,6 +174,7 @@ func New(ctx context.Context, cfg *config.Config, log *slog.Logger) (*Server, er
 	srv.payment.RegisterSubscribers(dispatcher)
 	srv.inventory.RegisterSubscribers(dispatcher)
 	srv.delivery.RegisterSubscribers(dispatcher)
+	srv.notification.RegisterSubscribers(dispatcher)
 
 	srv.http = &http.Server{
 		Addr:         fmt.Sprintf(":%d", cfg.Server.Port),
@@ -262,6 +273,7 @@ func (s *Server) routes(tokens *token.Manager, limiter *ratelimit.Limiter) http.
 			r.Mount("/", s.ordering.CustomerRoutes())
 			r.Mount("/payments", s.payment.CustomerRoutes())
 			r.Mount("/deliveries", s.delivery.CustomerRoutes())
+			r.Mount("/notifications", s.notification.CustomerRoutes())
 			r.Mount("/addresses", s.identity.AddressRoutes())
 		})
 

@@ -361,6 +361,15 @@ func (s *CatalogService) IsAcceptingOrders(ctx context.Context, kitchenID id.ID)
 	return false, why.CustomerMessage(kitchen.Name), nil
 }
 
+// Name returns a kitchen's display name, for snapshotting onto events.
+func (s *CatalogService) Name(ctx context.Context, kitchenID id.ID) (string, error) {
+	kitchen, err := s.kitchens.FindByID(ctx, kitchenID)
+	if err != nil {
+		return "", err
+	}
+	return kitchen.Name, nil
+}
+
 func (s *CatalogService) ServesLocation(ctx context.Context, kitchenID id.ID, lat, lng float64) (bool, error) {
 	kitchen, err := s.kitchens.FindByID(ctx, kitchenID)
 	if err != nil {

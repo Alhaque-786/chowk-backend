@@ -71,7 +71,8 @@ func New(deps Deps) *Module {
 	)
 
 	kitchenService := app.NewKitchenOrderService(
-		deps.DB, orders, deps.Stock, deps.Riders, deps.Payments, deps.Events, deps.Clock,
+		deps.DB, orders, deps.Stock, deps.Riders, deps.Payments, deps.Kitchens,
+		deps.Events, deps.Clock,
 	)
 
 	return &Module{

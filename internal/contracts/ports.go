@@ -58,6 +58,10 @@ type PriceQuoter interface {
 type KitchenAvailability interface {
 	IsAcceptingOrders(ctx context.Context, kitchenID id.ID) (bool, string, error)
 	ServesLocation(ctx context.Context, kitchenID id.ID, lat, lng float64) (bool, error)
+	// Name is needed so ordering can snapshot it onto the events it publishes.
+	// Cheap because catalog caches the kitchen, and it keeps consumers from
+	// having to call back for context they need to render a message.
+	Name(ctx context.Context, kitchenID id.ID) (string, error)
 }
 
 // ---------------------------------------------------------------------------

@@ -98,10 +98,15 @@ type OrderLineSnapshot struct {
 }
 
 type OrderPlacedPayload struct {
-	OrderID           id.ID               `json:"order_id"`
-	OrderNumber       string              `json:"order_number"`
-	UserID            id.ID               `json:"user_id"`
-	KitchenID         id.ID               `json:"kitchen_id"`
+	OrderID     id.ID  `json:"order_id"`
+	OrderNumber string `json:"order_number"`
+	UserID      id.ID  `json:"user_id"`
+	KitchenID   id.ID  `json:"kitchen_id"`
+	// KitchenName is snapshotted onto the event, not just its id. A consumer that
+	// must call back into catalog to render "Khansama has your order" is coupled
+	// to catalog's availability, which defeats the point of the event -- and
+	// notification would be unable to send anything during a catalog blip.
+	KitchenName       string              `json:"kitchen_name"`
 	Lines             []OrderLineSnapshot `json:"lines"`
 	SubtotalMinor     int64               `json:"subtotal_minor"`
 	TotalMinor        int64               `json:"total_minor"`
@@ -119,6 +124,7 @@ type OrderStatusChangedPayload struct {
 	OrderNumber string    `json:"order_number"`
 	UserID      id.ID     `json:"user_id"`
 	KitchenID   id.ID     `json:"kitchen_id"`
+	KitchenName string    `json:"kitchen_name"`
 	FromStatus  string    `json:"from_status"`
 	ToStatus    string    `json:"to_status"`
 	Reason      string    `json:"reason,omitempty"`

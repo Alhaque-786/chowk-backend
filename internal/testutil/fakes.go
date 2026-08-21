@@ -73,13 +73,18 @@ func (f *FakePriceQuoter) QuotePrices(_ context.Context, req contracts.PriceQuot
 
 // FakeKitchenAvailability controls whether the kitchen accepts orders.
 type FakeKitchenAvailability struct {
-	Accepting bool
-	Reason    string
-	Serves    bool
+	Accepting   bool
+	Reason      string
+	Serves      bool
+	KitchenName string
 }
 
 func NewFakeKitchenAvailability() *FakeKitchenAvailability {
-	return &FakeKitchenAvailability{Accepting: true, Serves: true}
+	return &FakeKitchenAvailability{Accepting: true, Serves: true, KitchenName: "Test Kitchen"}
+}
+
+func (f *FakeKitchenAvailability) Name(context.Context, id.ID) (string, error) {
+	return f.KitchenName, nil
 }
 
 func (f *FakeKitchenAvailability) IsAcceptingOrders(context.Context, id.ID) (bool, string, error) {

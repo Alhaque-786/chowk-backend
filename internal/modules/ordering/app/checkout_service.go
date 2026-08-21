@@ -431,6 +431,12 @@ func (s *CheckoutService) Checkout(ctx context.Context, in CheckoutInput) (*Chec
 }
 
 // publishPlaced writes the order.placed event to the outbox.
+//
+// The kitchen NAME is resolved and snapshotted onto the event, not just its id.
+// A consumer that has to call back into catalog to render "Khansama has your
+// order" is coupled to catalog's availability, which defeats the point of the
+// event -- and notification would be unable to send anything during a catalog
+// blip.
 func (s *CheckoutService) publishPlaced(ctx context.Context, order *domain.Order) error {
 	lines := make([]contracts.OrderLineSnapshot, 0, len(order.Lines))
 	for _, l := range order.Lines {
@@ -443,11 +449,18 @@ func (s *CheckoutService) publishPlaced(ctx context.Context, order *domain.Order
 		})
 	}
 
+	// Best effort: a missing name must not fail an order that is otherwise fine.
+	kitchenName, err := s.kitchens.Name(ctx, order.KitchenID)
+	if err != nil || kitchenName == "" {
+		kitchenName = "The kitchen"
+	}
+
 	evt, err := eventbus.New(contracts.EventOrderPlaced, order.ID, contracts.OrderPlacedPayload{
 		OrderID:           order.ID,
 		OrderNumber:       order.Number,
 		UserID:            order.UserID,
 		KitchenID:         order.KitchenID,
+		KitchenName:       kitchenName,
 		Lines:             lines,
 		SubtotalMinor:     order.Subtotal.Minor(),
 		TotalMinor:        order.Total.Minor(),
@@ -692,11 +705,17 @@ func (s *CheckoutService) publishStatusChange(
 	actorRole string,
 	now time.Time,
 ) error {
+	kitchenName, nameErr := s.kitchens.Name(ctx, order.KitchenID)
+	if nameErr != nil || kitchenName == "" {
+		kitchenName = "The kitchen"
+	}
+
 	payload := contracts.OrderStatusChangedPayload{
 		OrderID:     order.ID,
 		OrderNumber: order.Number,
 		UserID:      order.UserID,
 		KitchenID:   order.KitchenID,
+		KitchenName: kitchenName,
 		FromStatus:  string(from),
 		ToStatus:    string(order.Status),
 		Reason:      reason,
