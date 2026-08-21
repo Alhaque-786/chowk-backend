@@ -286,23 +286,25 @@ func (s *InventoryService) Release(ctx context.Context, orderID id.ID) error {
 // Catalog subscribes and flips its flag. Inventory does NOT write to menu_items —
 // that would reach across a module boundary. The event is the seam.
 func (s *InventoryService) refreshSoldOut(ctx context.Context, reservations []*domain.Reservation) error {
-	affected := make(map[id.ID]struct{})
+	// One query for every affected dish, not one per ingredient. This runs inside
+	// the checkout and consume transactions, so each avoided round trip is time
+	// not spent holding row locks that concurrent checkouts are blocked on.
+	ingredientIDs := make([]id.ID, 0, len(reservations))
+	seen := make(map[id.ID]struct{}, len(reservations))
 	for _, r := range reservations {
-		menuItemIDs, err := s.recipes.MenuItemsUsing(ctx, r.IngredientID)
-		if err != nil {
-			return err
+		if _, dup := seen[r.IngredientID]; dup {
+			continue
 		}
-		for _, itemID := range menuItemIDs {
-			affected[itemID] = struct{}{}
-		}
-	}
-	if len(affected) == 0 {
-		return nil
+		seen[r.IngredientID] = struct{}{}
+		ingredientIDs = append(ingredientIDs, r.IngredientID)
 	}
 
-	itemIDs := make([]id.ID, 0, len(affected))
-	for itemID := range affected {
-		itemIDs = append(itemIDs, itemID)
+	itemIDs, err := s.recipes.MenuItemsUsingAny(ctx, ingredientIDs)
+	if err != nil {
+		return err
+	}
+	if len(itemIDs) == 0 {
+		return nil
 	}
 
 	recipesByItem, err := s.recipes.LoadForMenuItems(ctx, itemIDs)

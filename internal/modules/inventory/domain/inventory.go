@@ -327,9 +327,14 @@ type RecipeRepository interface {
 	Delete(ctx context.Context, menuItemID, ingredientID id.ID) error
 	// LoadForMenuItems batches by item, so exploding a ten-line cart is one query.
 	LoadForMenuItems(ctx context.Context, menuItemIDs []id.ID) (map[id.ID][]RecipeLine, error)
-	// MenuItemsUsing finds every dish affected by an ingredient, for recomputing
-	// sold-out status after stock changes.
-	MenuItemsUsing(ctx context.Context, ingredientID id.ID) ([]id.ID, error)
+	// MenuItemsUsingAny finds every dish affected by ANY of these ingredients, in
+	// one query.
+	//
+	// Batched deliberately: the per-ingredient variant made refreshSoldOut an N+1,
+	// running one query per ingredient in an order. It sits inside the checkout
+	// and consume transactions, so every extra round trip is time holding row
+	// locks that concurrent checkouts are waiting on.
+	MenuItemsUsingAny(ctx context.Context, ingredientIDs []id.ID) ([]id.ID, error)
 }
 
 type ReservationRepository interface {

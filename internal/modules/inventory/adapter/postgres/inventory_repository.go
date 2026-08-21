@@ -347,10 +347,19 @@ func (r *RecipeRepository) LoadForMenuItems(ctx context.Context, menuItemIDs []i
 	return out, rows.Err()
 }
 
-func (r *RecipeRepository) MenuItemsUsing(ctx context.Context, ingredientID id.ID) ([]id.ID, error) {
-	const q = `SELECT menu_item_id FROM recipes WHERE ingredient_id = $1`
+// MenuItemsUsingAny returns every dish using any of these ingredients.
+//
+// DISTINCT because a dish can use several of them, and the caller wants a set.
+// One placeholder via ANY($1) rather than a generated IN list, so Postgres caches
+// the plan instead of recompiling per distinct ingredient count.
+func (r *RecipeRepository) MenuItemsUsingAny(ctx context.Context, ingredientIDs []id.ID) ([]id.ID, error) {
+	if len(ingredientIDs) == 0 {
+		return nil, nil
+	}
 
-	rows, err := r.db.Q(ctx).Query(ctx, q, ingredientID)
+	const q = `SELECT DISTINCT menu_item_id FROM recipes WHERE ingredient_id = ANY($1)`
+
+	rows, err := r.db.Q(ctx).Query(ctx, q, ingredientIDs)
 	if err != nil {
 		return nil, apperr.Internal(fmt.Errorf("inventory: menu items using ingredient: %w", err))
 	}

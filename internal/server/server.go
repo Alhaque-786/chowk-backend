@@ -18,7 +18,6 @@ import (
 	"github.com/go-chi/cors"
 
 	"github.com/zevoxa/chowk-backend/internal/config"
-	"github.com/zevoxa/chowk-backend/internal/contracts"
 	"github.com/zevoxa/chowk-backend/internal/modules/catalog"
 	"github.com/zevoxa/chowk-backend/internal/modules/delivery"
 	"github.com/zevoxa/chowk-backend/internal/modules/identity"
@@ -26,6 +25,7 @@ import (
 	"github.com/zevoxa/chowk-backend/internal/modules/notification"
 	"github.com/zevoxa/chowk-backend/internal/modules/ordering"
 	"github.com/zevoxa/chowk-backend/internal/modules/payment"
+	"github.com/zevoxa/chowk-backend/internal/modules/promotion"
 	"github.com/zevoxa/chowk-backend/internal/platform/cache"
 	"github.com/zevoxa/chowk-backend/internal/platform/database"
 	"github.com/zevoxa/chowk-backend/internal/platform/eventbus"
@@ -59,6 +59,7 @@ type Server struct {
 	inventory    *inventory.Module
 	delivery     *delivery.Module
 	notification *notification.Module
+	promotion    *promotion.Module
 
 	// idempotency guards write endpoints against client retries.
 	idempotency *database.IdempotencyStore
@@ -139,19 +140,21 @@ func New(ctx context.Context, cfg *config.Config, log *slog.Logger) (*Server, er
 		Users: srv.identity.UserDirectory(),
 	})
 
+	srv.promotion = promotion.New(promotion.Deps{
+		Config: cfg, DB: db, Events: outbox, Clock: clk,
+	})
+
 	// Payment before ordering: ordering depends on its PaymentInitiator.
 	srv.payment = payment.New(payment.Deps{
 		Config: cfg, DB: db, Events: outbox, Clock: clk,
 		Users: srv.identity.UserDirectory(),
 	})
 
-	// Ordering is built last because it depends on the others' contracts.
+	// Ordering is built last because it depends on every other module's contract.
 	//
-	// Null adapters stand in for modules that do not exist yet (see
-	// contracts/null.go). Each is honest about its absence: stock and rider
-	// dispatch degrade silently because that is safe, while payment FAILS LOUDLY
-	// because a silent success would mark orders paid without taking money.
-	// Replacing an entry here is what "that module is done" means.
+	// Every dependency is now a real implementation -- no null adapters remain.
+	// The adapters in contracts/null.go are kept for tests and for the next module
+	// that is stubbed before it is built.
 	srv.ordering = ordering.New(ordering.Deps{
 		Config: cfg, DB: db, Cache: redis, Events: outbox, Clock: clk,
 
@@ -159,11 +162,10 @@ func New(ctx context.Context, cfg *config.Config, log *slog.Logger) (*Server, er
 		Kitchens: srv.catalog.KitchenAvailability(),
 		Users:    srv.identity.UserDirectory(),
 
-		Payments: srv.payment.PaymentInitiator(),
-		Stock:    srv.inventory.StockReserver(),
-		Riders:   srv.delivery.RiderDispatcher(),
-
-		Discounts: contracts.NullDiscountCalculator{}, // TODO: promotion module
+		Payments:  srv.payment.PaymentInitiator(),
+		Stock:     srv.inventory.StockReserver(),
+		Riders:    srv.delivery.RiderDispatcher(),
+		Discounts: srv.promotion.DiscountCalculator(),
 	})
 
 	// Every module registers its event handlers before the relay starts, so no
@@ -175,6 +177,7 @@ func New(ctx context.Context, cfg *config.Config, log *slog.Logger) (*Server, er
 	srv.inventory.RegisterSubscribers(dispatcher)
 	srv.delivery.RegisterSubscribers(dispatcher)
 	srv.notification.RegisterSubscribers(dispatcher)
+	srv.promotion.RegisterSubscribers(dispatcher)
 
 	srv.http = &http.Server{
 		Addr:         fmt.Sprintf(":%d", cfg.Server.Port),
@@ -274,6 +277,7 @@ func (s *Server) routes(tokens *token.Manager, limiter *ratelimit.Limiter) http.
 			r.Mount("/payments", s.payment.CustomerRoutes())
 			r.Mount("/deliveries", s.delivery.CustomerRoutes())
 			r.Mount("/notifications", s.notification.CustomerRoutes())
+			r.Mount("/offers", s.promotion.CustomerRoutes())
 			r.Mount("/addresses", s.identity.AddressRoutes())
 		})
 
@@ -292,6 +296,7 @@ func (s *Server) routes(tokens *token.Manager, limiter *ratelimit.Limiter) http.
 			r.Use(httpx.Authenticate(tokens))
 			r.Use(httpx.RequireRole(httpx.RolePlatformAdmin))
 			r.Get("/admin/events", s.handleListEventHandlers)
+			r.Mount("/admin/coupons", s.promotion.AdminRoutes())
 		})
 	})
 
