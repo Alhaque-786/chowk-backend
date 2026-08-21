@@ -45,6 +45,13 @@ migrate: ## Apply pending migrations
 migrate-status: ## Show applied and pending migrations
 	go run ./cmd/migrate -status
 
+.PHONY: erd
+erd: ## Regenerate docs/ERD.md from the live database catalog
+	# Generated rather than hand-written: a schema doc written from memory is wrong
+	# within a week and nothing checks it. This reads information_schema and
+	# pg_constraint, so it cannot drift from the database it describes.
+	go run ./cmd/erdgen
+
 .PHONY: migration
 migration: ## Create a new migration: make migration name=add_wallet
 	@if [ -z "$(name)" ]; then echo "usage: make migration name=add_wallet"; exit 1; fi

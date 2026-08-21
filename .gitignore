@@ -1,6 +1,13 @@
 # Binaries
 bin/
 *.exe
+# Root-level binaries from `go build ./cmd/x`, which writes to the working
+# directory rather than bin/. A 13MB binary reached a commit this way once.
+/api
+/worker
+/migrate
+/seed
+/erdgen
 
 # Secrets -- never commit
 .env
