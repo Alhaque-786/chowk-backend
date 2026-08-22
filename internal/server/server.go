@@ -476,6 +476,15 @@ func (s *Server) collectOutboxMetrics(ctx context.Context) {
 	}
 }
 
+// Handler exposes the fully-wired HTTP handler.
+//
+// Exported for tests, which is worth stating plainly: the whole middleware chain
+// -- auth, rate limiting, idempotency, the error envelope -- only exists as a
+// composed whole, and testing handlers in isolation would skip exactly the part
+// most likely to be wrong. A route accidentally mounted outside Authenticate is
+// an auth bypass that no unit test can see.
+func (s *Server) Handler() http.Handler { return s.http.Handler }
+
 // Dispatcher is exposed so the worker binary can reuse the same wiring.
 func (s *Server) Dispatcher() *eventbus.Dispatcher { return s.dispatcher }
 
