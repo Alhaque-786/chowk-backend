@@ -177,6 +177,30 @@ func IsNotFound(err error) bool { return errors.Is(err, pgx.ErrNoRows) }
 // non-empty, only for that specific constraint. Passing the constraint name
 // matters: an order insert can violate several unique indexes, and each means
 // something different to the caller.
+//
+// HAZARD -- read before using this inside a transaction.
+//
+// In Postgres, ANY error raised inside a transaction poisons it: every subsequent
+// statement fails, and COMMIT reports "commit unexpectedly resulted in rollback".
+// So this helper is safe for deciding WHICH ERROR TO RETURN, and unsafe for
+// deciding to CARRY ON.
+//
+//	// SAFE: translate and return. The caller aborts the transaction.
+//	if database.IsUniqueViolation(err, "users_phone_key") {
+//	    return apperr.Conflict("PHONE_TAKEN", "...")
+//	}
+//
+//	// BROKEN: the transaction is already dead. The next statement fails and the
+//	// commit reports a rollback.
+//	if database.IsUniqueViolation(err, "x_key") {
+//	    return nil // then keep going...
+//	}
+//
+// For idempotent inserts -- "create it unless it already exists" -- use
+// INSERT ... ON CONFLICT DO NOTHING RETURNING id and check whether a row came
+// back. That raises no error at all, so the transaction stays usable. This bug
+// shipped once in promotion's redemption insert and made retried checkouts return
+// 500 instead of succeeding idempotently.
 func IsUniqueViolation(err error, constraint string) bool {
 	var pgErr *pgconn.PgError
 	if !errors.As(err, &pgErr) || pgErr.Code != codeUniqueViolation {

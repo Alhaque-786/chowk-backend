@@ -192,21 +192,38 @@ func NewRedemptionRepository(db *database.DB) *RedemptionRepository {
 // a COUNT on every checkout. Incrementing it here, transactionally, is what keeps
 // it from drifting from the redemptions table.
 func (r *RedemptionRepository) Create(ctx context.Context, red *domain.Redemption) error {
+	// ON CONFLICT DO NOTHING, not catch-the-violation.
+	//
+	// This distinction is not stylistic. In Postgres, ANY error raised inside a
+	// transaction poisons it: every subsequent statement fails and COMMIT reports
+	// "commit unexpectedly resulted in rollback". Letting the unique violation fire
+	// and then swallowing it therefore does NOT produce idempotent behaviour -- it
+	// produces an internal error on exactly the retried checkout the constraint was
+	// meant to make safe. ON CONFLICT raises nothing, so the transaction stays
+	// usable, which matters doubly here because Redeem runs under SERIALIZABLE.
 	const insert = `
 		INSERT INTO coupon_redemptions (id, coupon_id, user_id, order_id, discount_minor, created_at)
-		VALUES ($1,$2,$3,$4,$5,$6)`
+		VALUES ($1,$2,$3,$4,$5,$6)
+		ON CONFLICT (order_id) DO NOTHING
+		RETURNING id`
 
-	if _, err := r.db.Q(ctx).Exec(ctx, insert,
+	var inserted id.ID
+	err := r.db.Q(ctx).QueryRow(ctx, insert,
 		red.ID, red.CouponID, red.UserID, red.OrderID, red.Discount.Minor(), red.CreatedAt,
-	); err != nil {
-		if database.IsUniqueViolation(err, "coupon_redemptions_order_key") {
-			// One redemption per order. A retried checkout lands here, and it is a
-			// success from the caller's point of view: the coupon is already applied.
-			return nil
-		}
+	).Scan(&inserted)
+
+	switch {
+	case database.IsNotFound(err):
+		// The conflict fired: this order already has a redemption. Success from the
+		// caller's point of view -- the coupon is applied -- and critically the
+		// counter must NOT be bumped again.
+		return nil
+	case err != nil:
 		return apperr.Internal(fmt.Errorf("promotion: create redemption: %w", err))
 	}
 
+	// Only reached when a row was genuinely inserted, so the cached counter cannot
+	// drift above the ledger on a retry.
 	const bump = `UPDATE coupons SET redemption_count = redemption_count + 1, updated_at = now() WHERE id = $1`
 	if _, err := r.db.Q(ctx).Exec(ctx, bump, red.CouponID); err != nil {
 		return apperr.Internal(fmt.Errorf("promotion: increment redemption count: %w", err))
