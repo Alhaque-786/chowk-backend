@@ -57,6 +57,30 @@ func main() {
 	}
 }
 
+// existingNames runs a single-column name query and returns the results as a set.
+//
+// One query and a set membership test, rather than a lookup per row: a seeder
+// with fifteen round trips to answer "does this already exist" is slower than the
+// work it is guarding, and the set makes the skip decision obvious at the call
+// site.
+func existingNames(ctx context.Context, db *database.DB, q string, args ...any) (map[string]bool, error) {
+	rows, err := db.Q(ctx).Query(ctx, q, args...)
+	if err != nil {
+		return nil, fmt.Errorf("seed: list existing names: %w", err)
+	}
+	defer rows.Close()
+
+	out := make(map[string]bool)
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return nil, fmt.Errorf("seed: scan name: %w", err)
+		}
+		out[name] = true
+	}
+	return out, rows.Err()
+}
+
 func run(force bool) error {
 	cfg, err := config.Load()
 	if err != nil {
@@ -221,15 +245,39 @@ func run(force bool) error {
 		{GroupID: groupAddonID, Name: "Extra salan", Price: money.FromRupees(35), DisplayOrder: 2},
 		{GroupID: groupAddonID, Name: "Boiled egg", Price: money.FromRupees(25), DisplayOrder: 3},
 	}
+	// Existing modifier names, so a re-run does not duplicate them.
+	//
+	// This loop assigned id.New() on every run, so there was never a primary-key
+	// conflict to skip on and each `make seed` appended another full set. Six runs
+	// during one afternoon left 30 modifiers where there should be 5 -- and the
+	// menu items below had exactly the same bug, which is how a development
+	// database ends up with six of every dish.
+	//
+	// Checked by NAME rather than by a fixed UUID per row because the name is
+	// what makes them duplicates to a human reading the menu, and hardcoding
+	// fifteen UUIDs to express "already there" is a lot of noise for a seeder.
+	existingModifiers, err := existingNames(ctx, db,
+		`SELECT m.name FROM modifiers m
+		 JOIN modifier_groups g ON g.id = m.group_id
+		 WHERE g.kitchen_id = $1`, khansamaKitchenID)
+	if err != nil {
+		return err
+	}
+
+	addedModifiers := 0
 	for i := range modifiers {
 		m := &modifiers[i]
+		if existingModifiers[m.Name] {
+			continue
+		}
 		m.ID = id.New()
 		m.IsAvailable = true
 		if err := menus.CreateModifier(ctx, m); err != nil {
 			return err
 		}
+		addedModifiers++
 	}
-	log.Info("created modifiers", "count", len(modifiers))
+	log.Info("seeded modifiers", "added", addedModifiers, "already_present", len(existingModifiers))
 
 	// --- Menu items ------------------------------------------------------
 	type seedItem struct {
@@ -273,8 +321,22 @@ func run(force bool) error {
 			"", catDrinkID, 20, 0, 1800, catalogdomain.FoodVeg, 0, 1, false, false, false},
 	}
 
+	existingItems, err := existingNames(ctx, db,
+		`SELECT name FROM menu_items WHERE kitchen_id = $1`, khansamaKitchenID)
+	if err != nil {
+		return err
+	}
+
 	created := 0
+	skipped := 0
 	for _, si := range items {
+		// Same idempotency problem as the modifiers above: without this, every
+		// run appended a second copy of the whole menu.
+		if existingItems[si.name] {
+			skipped++
+			continue
+		}
+
 		now := time.Now().UTC()
 		cat := si.category
 
@@ -324,7 +386,7 @@ func run(force bool) error {
 		}
 		created++
 	}
-	log.Info("created menu items", "count", created)
+	log.Info("seeded menu items", "added", created, "already_present", skipped)
 
 	// --- Offers -----------------------------------------------------------
 	//
