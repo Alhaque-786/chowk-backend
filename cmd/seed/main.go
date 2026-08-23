@@ -175,6 +175,120 @@ func run(force bool) error {
 		log.Info("created kitchen", "name", kitchen.Name, "id", kitchen.ID)
 	}
 
+	// --- Neighbouring kitchens, for development only ----------------------
+	//
+	// Khansama alone is one card in a three-column grid, which tells you nothing
+	// about how a listing page actually looks or behaves: you cannot judge the
+	// grid, the filters have nothing to filter, and "open first" sorting is
+	// untestable with a single row.
+	//
+	// These are DEVELOPMENT FIXTURES and they are shaped to exercise real
+	// branches rather than to look plausible: one is closed (is_accepting_orders
+	// false, so the card must dim and label itself), one is slow (48 min prep, so
+	// the "under 30 min" filter must exclude it), one is unrated (rating_count 0,
+	// so the rating chip must be absent rather than showing 0.0), and they sit at
+	// different distances so the distance line and radius filtering have
+	// something to do.
+	//
+	// Third-party rather than first-party, with a real commission_bps, because
+	// every kitchen being IsFirstParty means the marketplace path is never
+	// exercised locally.
+	type devKitchen struct {
+		id               string
+		name, slug, desc string
+		cuisines         []string
+		lat, lng         float64
+		cover            string
+		prepMinutes      int32
+		rating           float64
+		ratingCount      int32
+		accepting        bool
+		minOrderRupees   float64
+	}
+
+	devKitchens := []devKitchen{
+		{"00000000-0000-0000-0000-0000000000b1", "Tunday Kababi", "tunday-kababi",
+			"Galouti and shami kebabs from a recipe older than the city's clock tower.",
+			[]string{"Awadhi", "Mughlai", "Kebabs"}, 26.8520, 80.9410,
+			"/dishes/cover-tandoor.jpg", 20, 4.6, 1284, true, 129},
+		{"00000000-0000-0000-0000-0000000000b2", "Dakshin Tiffin", "dakshin-tiffin",
+			"Dosa, idli and filter coffee, ground and fermented on the day.",
+			[]string{"South Indian", "Breakfast", "Vegetarian"}, 26.8601, 80.9505,
+			"/dishes/cover-southindian.jpg", 18, 4.4, 612, true, 99},
+		{"00000000-0000-0000-0000-0000000000b3", "Chowk Chaat House", "chowk-chaat-house",
+			"Tokri chaat, batasha and aloo tikki, fried to order.",
+			[]string{"Street Food", "Chaat", "Snacks"}, 26.8390, 80.9120,
+			"/dishes/cover-streetfood.jpg", 12, 4.2, 0, true, 79},
+		// Closed: the card must dim and say so rather than accepting an order.
+		{"00000000-0000-0000-0000-0000000000b4", "Ram Asrey Sweets", "ram-asrey-sweets",
+			"Malai gilori, makhan malai and mithai by the kilo.",
+			[]string{"Sweets", "Desserts"}, 26.8455, 80.9398,
+			"/dishes/cover-sweets.jpg", 15, 4.7, 903, false, 149},
+		// Slow AND unrated: exercises the prep-time filter and the missing-rating
+		// branch at the same time.
+		{"00000000-0000-0000-0000-0000000000b5", "Nawabi Dum Pukht", "nawabi-dum-pukht",
+			"Sealed-pot biryani and nihari, cooked for six hours. Worth the wait.",
+			[]string{"Awadhi", "Biryani", "Mughlai"}, 26.8700, 80.9600,
+			// Its own photograph. Sharing cover-mughlai.jpg with Khansama put the
+			// same picture twice in one grid, which reads as a bug rather than as
+			// two restaurants.
+			"/dishes/chicken-biryani.jpg", 48, 0, 0, true, 299},
+	}
+
+	addedKitchens := 0
+	for _, dk := range devKitchens {
+		now := time.Now().UTC()
+		k := &catalogdomain.Kitchen{
+			ID:            id.MustParse(dk.id),
+			MerchantID:    catalog.FirstPartyMerchantID,
+			Name:          dk.name,
+			Slug:          dk.slug,
+			Description:   dk.desc,
+			Cuisines:      dk.cuisines,
+			CoverImageURL: dk.cover,
+			Phone:         "+919876500000",
+			Email:         dk.slug + "@example.invalid",
+
+			AddressLine1: "Lucknow",
+			City:         "Lucknow",
+			Pincode:      "226001",
+			Latitude:     dk.lat,
+			Longitude:    dk.lng,
+			// Wide enough that all of them reach the home page's search centre,
+			// so the grid is populated while distances still differ.
+			DeliveryRadiusM: 12000,
+
+			IsActive:          true,
+			IsAcceptingOrders: dk.accepting,
+
+			// A real commission, unlike Khansama's zero: these stand in for
+			// onboarded third parties, which is the case the pricing code needs
+			// exercised.
+			CommissionBps:  600,
+			PackagingFee:   money.FromRupees(15),
+			MinOrder:       money.FromRupees(dk.minOrderRupees),
+			AvgPrepMinutes: dk.prepMinutes,
+			RatingAverage:  dk.rating,
+			RatingCount:    dk.ratingCount,
+
+			FSSAILicense: "DEV-FIXTURE",
+			IsFirstParty: false,
+			Version:      1,
+			CreatedAt:    now,
+			UpdatedAt:    now,
+		}
+		if err := k.Validate(); err != nil {
+			return fmt.Errorf("dev kitchen %s invalid: %w", dk.slug, err)
+		}
+		// Create returns a slug conflict on a re-run, which is the idempotency
+		// check -- the slug is fixed, so a second run cannot duplicate these.
+		if err := kitchens.Create(ctx, k); err != nil {
+			continue
+		}
+		addedKitchens++
+	}
+	log.Info("seeded dev kitchens", "added", addedKitchens, "total", len(devKitchens))
+
 	// --- Opening hours ---------------------------------------------------
 	// A split shift: lunch 11:00-15:00 and dinner 19:00-23:00, every day. Two
 	// rows per weekday rather than one 11:00-23:00 shift, because the kitchen
