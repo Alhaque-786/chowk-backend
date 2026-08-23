@@ -155,9 +155,12 @@ func run(force bool) error {
 			IsActive:          true,
 			IsAcceptingOrders: true,
 
-			CommissionBps:  0, // first-party: no commission to ourselves
-			PackagingFee:   money.FromRupees(15),
-			MinOrder:       money.FromRupees(149),
+			CommissionBps: 0, // first-party: no commission to ourselves
+			PackagingFee:  money.FromRupees(15),
+			MinOrder:      money.FromRupees(149),
+			// What two people actually spend here: a biryani, a kebab and a bread.
+			// Merchant-declared, not derived -- see the column comment in 0013.
+			CostForTwo:     money.FromRupees(650),
 			AvgPrepMinutes: 25,
 
 			FSSAILicense: "FIRST-PARTY",
@@ -204,26 +207,29 @@ func run(force bool) error {
 		ratingCount      int32
 		accepting        bool
 		minOrderRupees   float64
+		// What two people typically spend. Merchant-declared, so the fixtures set
+		// it explicitly rather than deriving it -- see migration 0013.
+		costForTwoRupees float64
 	}
 
 	devKitchens := []devKitchen{
 		{"00000000-0000-0000-0000-0000000000b1", "Tunday Kababi", "tunday-kababi",
 			"Galouti and shami kebabs from a recipe older than the city's clock tower.",
 			[]string{"Awadhi", "Mughlai", "Kebabs"}, 26.8520, 80.9410,
-			"/dishes/cover-tandoor.jpg", 20, 4.6, 1284, true, 129},
+			"/dishes/cover-tandoor.jpg", 20, 4.6, 1284, true, 129, 450},
 		{"00000000-0000-0000-0000-0000000000b2", "Dakshin Tiffin", "dakshin-tiffin",
 			"Dosa, idli and filter coffee, ground and fermented on the day.",
 			[]string{"South Indian", "Breakfast", "Vegetarian"}, 26.8601, 80.9505,
-			"/dishes/cover-southindian.jpg", 18, 4.4, 612, true, 99},
+			"/dishes/cover-southindian.jpg", 18, 4.4, 612, true, 99, 300},
 		{"00000000-0000-0000-0000-0000000000b3", "Chowk Chaat House", "chowk-chaat-house",
 			"Tokri chaat, batasha and aloo tikki, fried to order.",
 			[]string{"Street Food", "Chaat", "Snacks"}, 26.8390, 80.9120,
-			"/dishes/cover-streetfood.jpg", 12, 4.2, 0, true, 79},
+			"/dishes/cover-streetfood.jpg", 12, 4.2, 0, true, 79, 250},
 		// Closed: the card must dim and say so rather than accepting an order.
 		{"00000000-0000-0000-0000-0000000000b4", "Ram Asrey Sweets", "ram-asrey-sweets",
 			"Malai gilori, makhan malai and mithai by the kilo.",
 			[]string{"Sweets", "Desserts"}, 26.8455, 80.9398,
-			"/dishes/cover-sweets.jpg", 15, 4.7, 903, false, 149},
+			"/dishes/cover-sweets.jpg", 15, 4.7, 903, false, 149, 400},
 		// Slow AND unrated: exercises the prep-time filter and the missing-rating
 		// branch at the same time.
 		{"00000000-0000-0000-0000-0000000000b5", "Nawabi Dum Pukht", "nawabi-dum-pukht",
@@ -232,7 +238,7 @@ func run(force bool) error {
 			// Its own photograph. Sharing cover-mughlai.jpg with Khansama put the
 			// same picture twice in one grid, which reads as a bug rather than as
 			// two restaurants.
-			"/dishes/chicken-biryani.jpg", 48, 0, 0, true, 299},
+			"/dishes/chicken-biryani.jpg", 48, 0, 0, true, 299, 900},
 	}
 
 	addedKitchens := 0
@@ -267,6 +273,7 @@ func run(force bool) error {
 			CommissionBps:  600,
 			PackagingFee:   money.FromRupees(15),
 			MinOrder:       money.FromRupees(dk.minOrderRupees),
+			CostForTwo:     money.FromRupees(dk.costForTwoRupees),
 			AvgPrepMinutes: dk.prepMinutes,
 			RatingAverage:  dk.rating,
 			RatingCount:    dk.ratingCount,

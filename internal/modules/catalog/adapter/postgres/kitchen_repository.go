@@ -25,8 +25,8 @@ const kitchenColumns = `
 	id, merchant_id, name, slug, description, cuisines, cover_image_url, phone, email,
 	address_line1, city, pincode, latitude, longitude, delivery_radius_m,
 	is_active, is_accepting_orders, pause_reason,
-	commission_bps, packaging_fee_minor, min_order_minor, avg_prep_minutes,
-	rating_average, rating_count, fssai_license, gstin,
+	commission_bps, packaging_fee_minor, min_order_minor, cost_for_two_minor,
+	avg_prep_minutes, rating_average, rating_count, fssai_license, gstin,
 	is_first_party, version, created_at, updated_at`
 
 func (r *KitchenRepository) Create(ctx context.Context, k *domain.Kitchen) error {
@@ -35,10 +35,11 @@ func (r *KitchenRepository) Create(ctx context.Context, k *domain.Kitchen) error
 			id, merchant_id, name, slug, description, cuisines, cover_image_url, phone, email,
 			address_line1, city, pincode, latitude, longitude, delivery_radius_m,
 			is_active, is_accepting_orders, pause_reason,
-			commission_bps, packaging_fee_minor, min_order_minor, avg_prep_minutes,
+			commission_bps, packaging_fee_minor, min_order_minor, cost_for_two_minor,
+			avg_prep_minutes,
 			fssai_license, gstin, is_first_party, version, created_at, updated_at
 		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,
-		          $19,$20,$21,$22,$23,$24,$25,1,$26,$27)`
+		          $19,$20,$21,$22,$23,$24,$25,$26,1,$27,$28)`
 
 	// Postgres distinguishes NULL from an empty array, and the column is NOT
 	// NULL. A caller with no cuisines set should get an empty array, not a raw
@@ -52,7 +53,8 @@ func (r *KitchenRepository) Create(ctx context.Context, k *domain.Kitchen) error
 		k.ID, k.MerchantID, k.Name, k.Slug, k.Description, cuisines, k.CoverImageURL, k.Phone, k.Email,
 		k.AddressLine1, k.City, k.Pincode, k.Latitude, k.Longitude, k.DeliveryRadiusM,
 		k.IsActive, k.IsAcceptingOrders, k.PauseReason,
-		k.CommissionBps, k.PackagingFee.Minor(), k.MinOrder.Minor(), k.AvgPrepMinutes,
+		k.CommissionBps, k.PackagingFee.Minor(), k.MinOrder.Minor(), k.CostForTwo.Minor(),
+		k.AvgPrepMinutes,
 		k.FSSAILicense, k.GSTIN, k.IsFirstParty, k.CreatedAt, k.UpdatedAt,
 	)
 	if err != nil {
@@ -77,16 +79,18 @@ func (r *KitchenRepository) Update(ctx context.Context, k *domain.Kitchen) error
 			address_line1 = $9, city = $10, pincode = $11, latitude = $12, longitude = $13,
 			delivery_radius_m = $14, is_active = $15, is_accepting_orders = $16,
 			pause_reason = $17, commission_bps = $18, packaging_fee_minor = $19,
-			min_order_minor = $20, avg_prep_minutes = $21, fssai_license = $22, gstin = $23,
-			version = version + 1, updated_at = $24
-		WHERE id = $1 AND version = $25`
+			min_order_minor = $20, cost_for_two_minor = $21, avg_prep_minutes = $22,
+			fssai_license = $23, gstin = $24,
+			version = version + 1, updated_at = $25
+		WHERE id = $1 AND version = $26`
 
 	tag, err := r.db.Q(ctx).Exec(ctx, q,
 		k.ID, k.Name, k.Slug, k.Description, k.Cuisines, k.CoverImageURL, k.Phone, k.Email,
 		k.AddressLine1, k.City, k.Pincode, k.Latitude, k.Longitude,
 		k.DeliveryRadiusM, k.IsActive, k.IsAcceptingOrders,
 		k.PauseReason, k.CommissionBps, k.PackagingFee.Minor(),
-		k.MinOrder.Minor(), k.AvgPrepMinutes, k.FSSAILicense, k.GSTIN,
+		k.MinOrder.Minor(), k.CostForTwo.Minor(), k.AvgPrepMinutes,
+		k.FSSAILicense, k.GSTIN,
 		k.UpdatedAt, k.Version,
 	)
 	if err != nil {
@@ -272,15 +276,15 @@ type scanner interface {
 
 func scanKitchen(row scanner) (*domain.Kitchen, error) {
 	var (
-		k                      domain.Kitchen
-		packagingFee, minOrder int64
-		ratingAvg              float64
+		k                                  domain.Kitchen
+		packagingFee, minOrder, costForTwo int64
+		ratingAvg                          float64
 	)
 	if err := row.Scan(
 		&k.ID, &k.MerchantID, &k.Name, &k.Slug, &k.Description, &k.Cuisines, &k.CoverImageURL, &k.Phone, &k.Email,
 		&k.AddressLine1, &k.City, &k.Pincode, &k.Latitude, &k.Longitude, &k.DeliveryRadiusM,
 		&k.IsActive, &k.IsAcceptingOrders, &k.PauseReason,
-		&k.CommissionBps, &packagingFee, &minOrder, &k.AvgPrepMinutes,
+		&k.CommissionBps, &packagingFee, &minOrder, &costForTwo, &k.AvgPrepMinutes,
 		&ratingAvg, &k.RatingCount, &k.FSSAILicense, &k.GSTIN,
 		&k.IsFirstParty, &k.Version, &k.CreatedAt, &k.UpdatedAt,
 	); err != nil {
@@ -288,6 +292,7 @@ func scanKitchen(row scanner) (*domain.Kitchen, error) {
 	}
 	k.PackagingFee = money.FromMinor(packagingFee, money.INR)
 	k.MinOrder = money.FromMinor(minOrder, money.INR)
+	k.CostForTwo = money.FromMinor(costForTwo, money.INR)
 	k.RatingAverage = ratingAvg
 	return &k, nil
 }

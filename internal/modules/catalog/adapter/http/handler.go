@@ -60,14 +60,17 @@ type kitchenResponse struct {
 	Cuisines    []string `json:"cuisines"`
 	// omitempty, so a kitchen with no photograph sends no key at all rather than
 	// an empty string the client has to test. Absent means "fall back".
-	CoverImageURL     string  `json:"cover_image_url,omitempty"`
-	City              string  `json:"city,omitempty"`
-	Latitude          float64 `json:"latitude"`
-	Longitude         float64 `json:"longitude"`
-	IsOpen            bool    `json:"is_open"`
-	ClosedReason      string  `json:"closed_reason,omitempty"`
-	AvgPrepMinutes    int32   `json:"avg_prep_minutes"`
-	MinOrderMinor     int64   `json:"min_order_minor"`
+	CoverImageURL  string  `json:"cover_image_url,omitempty"`
+	City           string  `json:"city,omitempty"`
+	Latitude       float64 `json:"latitude"`
+	Longitude      float64 `json:"longitude"`
+	IsOpen         bool    `json:"is_open"`
+	ClosedReason   string  `json:"closed_reason,omitempty"`
+	AvgPrepMinutes int32   `json:"avg_prep_minutes"`
+	MinOrderMinor  int64   `json:"min_order_minor"`
+	// omitempty: 0 means the merchant has not set it, and the card must show
+	// nothing rather than "Rs0 for two".
+	CostForTwoMinor   int64   `json:"cost_for_two_minor,omitempty"`
 	PackagingFeeMinor int64   `json:"packaging_fee_minor"`
 	RatingAverage     float64 `json:"rating_average"`
 	RatingCount       int32   `json:"rating_count"`
@@ -90,6 +93,7 @@ func toKitchenResponse(k *domain.Kitchen, now time.Time, distanceM *int32) kitch
 		IsOpen:            open,
 		AvgPrepMinutes:    k.AvgPrepMinutes,
 		MinOrderMinor:     k.MinOrder.Minor(),
+		CostForTwoMinor:   k.CostForTwo.Minor(),
 		PackagingFeeMinor: k.PackagingFee.Minor(),
 		RatingAverage:     k.RatingAverage,
 		RatingCount:       k.RatingCount,

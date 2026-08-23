@@ -52,9 +52,16 @@ type Kitchen struct {
 	IsAcceptingOrders bool
 	PauseReason       string
 
-	CommissionBps  int32
-	PackagingFee   money.Amount
-	MinOrder       money.Amount
+	CommissionBps int32
+	PackagingFee  money.Amount
+	MinOrder      money.Amount
+	// CostForTwo is the typical spend for two people, set by the merchant.
+	//
+	// Zero means NOT SET, and callers must treat it as absent rather than as free.
+	// It is merchant-declared rather than derived from the menu: a median price
+	// describes neither a kitchen selling one family-sized biryani beside cheap
+	// breads, nor a thali place where a single plate feeds two.
+	CostForTwo     money.Amount
 	AvgPrepMinutes int32
 
 	RatingAverage float64
