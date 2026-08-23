@@ -27,8 +27,12 @@ type Kitchen struct {
 	Slug        string
 	Description string
 	Cuisines    []string
-	Phone       string
-	Email       string
+	// CoverImageURL is the listing card photograph. Empty means the UI falls back
+	// to a generated tile -- so this is optional everywhere, and no code path may
+	// assume a kitchen has a picture.
+	CoverImageURL string
+	Phone         string
+	Email         string
 
 	AddressLine1 string
 	City         string

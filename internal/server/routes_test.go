@@ -65,7 +65,14 @@ var publicRoutes = map[string]string{
 	"/api/v1/kitchens":             "browsing must not require an account",
 	"/api/v1/kitchens/{kitchenID}": "browsing must not require an account",
 	"/api/v1/kitchens/{slug}":      "browsing must not require an account",
-	"/api/v1/offers":               "offers are advertising; visible before signup",
+	// Mounted subtree, so chi reports the pattern WITH a trailing slash. Both
+	// forms are listed deliberately: the bare form was here on its own and never
+	// matched anything, so it silently documented an intent the router did not
+	// implement -- `/offers` was authenticated, and this dead entry is why nobody
+	// noticed. Normalisation in isPublic now covers the general case; these stay
+	// explicit so the reason is attached to the path.
+	"/api/v1/offers":  "offers are advertising; visible before signup",
+	"/api/v1/offers/": "offers are advertising; visible before signup",
 
 	"/api/v1/webhooks/payment":  "authenticated by HMAC signature; a gateway has no bearer token",
 	"/api/v1/webhooks/delivery": "authenticated by HMAC signature; a 3PL has no bearer token",
@@ -76,6 +83,14 @@ var publicRoutes = map[string]string{
 func isPublic(pattern string) bool {
 	if _, ok := publicRoutes[pattern]; ok {
 		return true
+	}
+	// A mounted subtree's root is reported with a trailing slash, so compare
+	// without it too. Without this an allowlist entry can look correct, match
+	// nothing, and quietly assert the opposite of what it says.
+	if trimmed := strings.TrimSuffix(pattern, "/"); trimmed != pattern {
+		if _, ok := publicRoutes[trimmed]; ok {
+			return true
+		}
 	}
 	// Public browse subtree: menus and search hang off a kitchen.
 	if strings.HasPrefix(pattern, "/api/v1/kitchens/") {

@@ -25,10 +25,36 @@ func NewHandler(promotions *app.PromotionService) *Handler {
 	return &Handler{promotions: promotions}
 }
 
-func (h *Handler) CustomerRoutes() http.Handler {
+// CustomerRoutes serves the offers subtree, which is PART PUBLIC and part not.
+//
+// Listing offers must work for an anonymous visitor. It was mounted inside the
+// authenticated group, so `GET /offers` answered MISSING_TOKEN for everyone who
+// had not logged in -- and because the frontend treats a failed offers fetch as
+// "no offers" rather than an error, the rail rendered empty instead of broken.
+// A promotion nobody can see until they sign up is the opposite of what a
+// promotion is for.
+//
+// Checking a code stays authenticated: `first_order_only` is a fact about a
+// USER, so evaluating it without one would either be wrong or leak whether a
+// phone number has ordered before.
+//
+// The middleware is injected rather than imported for the same reason as
+// AuthHandler.Routes: chi cannot mount two routers on the same path, so mixing
+// public and authenticated routes requires them to share one subtree, and the
+// composition root stays the only place that decides HOW a caller is
+// authenticated.
+func (h *Handler) CustomerRoutes(authenticate func(http.Handler) http.Handler) http.Handler {
 	r := chi.NewRouter()
+
+	// Public: browsing offers.
 	r.Get("/", h.ListOffers)
-	r.Post("/check", h.CheckCode)
+
+	// Authenticated: validating a code against this customer's history.
+	r.Group(func(r chi.Router) {
+		r.Use(authenticate)
+		r.Post("/check", h.CheckCode)
+	})
+
 	return r
 }
 
@@ -48,6 +74,14 @@ type offerResponse struct {
 	MinOrderMinor  int64  `json:"min_order_minor"`
 	FirstOrderOnly bool   `json:"first_order_only"`
 	ValidUntil     string `json:"valid_until,omitempty"`
+	// KitchenIDs is which kitchens the offer applies to. EMPTY means every
+	// kitchen -- a platform-wide offer.
+	//
+	// Exposed, unlike the discount internals below, because it answers "where can
+	// I use this", which is the customer's question and not a commercial secret.
+	// Without it a listing page cannot show an offer against the kitchen it
+	// belongs to, and the only alternative is one request per kitchen.
+	KitchenIDs []string `json:"kitchen_ids"`
 	// Discount internals (type, bps, funding) are NOT exposed: how a discount is
 	// computed and who pays for it is commercial information.
 }
@@ -56,6 +90,13 @@ func toOfferResponse(c *domain.Coupon) offerResponse {
 	resp := offerResponse{
 		Code: c.Code, Description: c.Description,
 		MinOrderMinor: c.MinOrder.Minor(), FirstOrderOnly: c.FirstOrderOnly,
+		// Non-nil so the field marshals as [] and never as null. A client
+		// distinguishing "all kitchens" from "no kitchens" should not also have to
+		// handle a third case of null.
+		KitchenIDs: make([]string, 0, len(c.KitchenIDs)),
+	}
+	for _, kid := range c.KitchenIDs {
+		resp.KitchenIDs = append(resp.KitchenIDs, kid.String())
 	}
 	if c.ValidUntil != nil {
 		resp.ValidUntil = c.ValidUntil.Format(time.RFC3339)

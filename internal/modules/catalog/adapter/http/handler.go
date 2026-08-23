@@ -53,22 +53,25 @@ func (h *Handler) KitchenRoutes() http.Handler {
 // ---------------------------------------------------------------------------
 
 type kitchenResponse struct {
-	ID                string   `json:"id"`
-	Name              string   `json:"name"`
-	Slug              string   `json:"slug"`
-	Description       string   `json:"description,omitempty"`
-	Cuisines          []string `json:"cuisines"`
-	City              string   `json:"city,omitempty"`
-	Latitude          float64  `json:"latitude"`
-	Longitude         float64  `json:"longitude"`
-	IsOpen            bool     `json:"is_open"`
-	ClosedReason      string   `json:"closed_reason,omitempty"`
-	AvgPrepMinutes    int32    `json:"avg_prep_minutes"`
-	MinOrderMinor     int64    `json:"min_order_minor"`
-	PackagingFeeMinor int64    `json:"packaging_fee_minor"`
-	RatingAverage     float64  `json:"rating_average"`
-	RatingCount       int32    `json:"rating_count"`
-	DistanceM         *int32   `json:"distance_m,omitempty"`
+	ID          string   `json:"id"`
+	Name        string   `json:"name"`
+	Slug        string   `json:"slug"`
+	Description string   `json:"description,omitempty"`
+	Cuisines    []string `json:"cuisines"`
+	// omitempty, so a kitchen with no photograph sends no key at all rather than
+	// an empty string the client has to test. Absent means "fall back".
+	CoverImageURL     string  `json:"cover_image_url,omitempty"`
+	City              string  `json:"city,omitempty"`
+	Latitude          float64 `json:"latitude"`
+	Longitude         float64 `json:"longitude"`
+	IsOpen            bool    `json:"is_open"`
+	ClosedReason      string  `json:"closed_reason,omitempty"`
+	AvgPrepMinutes    int32   `json:"avg_prep_minutes"`
+	MinOrderMinor     int64   `json:"min_order_minor"`
+	PackagingFeeMinor int64   `json:"packaging_fee_minor"`
+	RatingAverage     float64 `json:"rating_average"`
+	RatingCount       int32   `json:"rating_count"`
+	DistanceM         *int32  `json:"distance_m,omitempty"`
 	// Commission and merchant terms are deliberately NOT exposed to customers.
 }
 
@@ -80,6 +83,7 @@ func toKitchenResponse(k *domain.Kitchen, now time.Time, distanceM *int32) kitch
 		Slug:              k.Slug,
 		Description:       k.Description,
 		Cuisines:          k.Cuisines,
+		CoverImageURL:     k.CoverImageURL,
 		City:              k.City,
 		Latitude:          k.Latitude,
 		Longitude:         k.Longitude,

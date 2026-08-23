@@ -261,6 +261,10 @@ func (s *Server) routes(tokens *token.Manager, limiter *ratelimit.Limiter) http.
 			// personalised content, but anonymous browsing must still work.
 			r.Use(httpx.OptionalAuth(tokens))
 			r.Mount("/kitchens", s.catalog.PublicRoutes())
+			// Offers live here, not in the authenticated group below: browsing
+			// promotions must work before signing up. The module applies
+			// Authenticate itself to the one route that needs a user.
+			r.Mount("/offers", s.promotion.CustomerRoutes(httpx.Authenticate(tokens)))
 		})
 
 		// --- Customer: cart, checkout, orders, addresses ---
@@ -277,7 +281,6 @@ func (s *Server) routes(tokens *token.Manager, limiter *ratelimit.Limiter) http.
 			r.Mount("/payments", s.payment.CustomerRoutes())
 			r.Mount("/deliveries", s.delivery.CustomerRoutes())
 			r.Mount("/notifications", s.notification.CustomerRoutes())
-			r.Mount("/offers", s.promotion.CustomerRoutes())
 			r.Mount("/addresses", s.identity.AddressRoutes())
 		})
 

@@ -110,9 +110,14 @@ func run(force bool) error {
 			Name:        "Khansama",
 			Slug:        "khansama",
 			Description: "Slow-cooked Awadhi biryani and kebabs, made the way a khansama would.",
-			Cuisines:    []string{"Awadhi", "Mughlai", "Biryani", "North Indian"},
-			Phone:       "+919876500000",
-			Email:       "kitchen@khansama.in",
+			// Served from the frontend's public/ directory, so a relative path is
+			// correct -- same origin, no CDN, no remote-pattern config. These are
+			// DEVELOPMENT placeholders: licensed, attributed, and not photographs
+			// of this kitchen's food. See frontend/src/lib/dish-photos.generated.json.
+			CoverImageURL: "/dishes/cover-mughlai.jpg",
+			Cuisines:      []string{"Awadhi", "Mughlai", "Biryani", "North Indian"},
+			Phone:         "+919876500000",
+			Email:         "kitchen@khansama.in",
 
 			AddressLine1: "Hazratganj",
 			City:         "Lucknow",
@@ -230,6 +235,7 @@ func run(force bool) error {
 	type seedItem struct {
 		name        string
 		description string
+		image       string // '' = the UI falls back to a generated tile
 		category    id.ID
 		rupees      float64
 		compare     float64 // 0 = no offer
@@ -244,27 +250,27 @@ func run(force bool) error {
 
 	items := []seedItem{
 		{"Chicken Dum Biryani", "Long-grain rice sealed with chicken and whole spices, cooked on dum.",
-			catBiryaniID, 289, 349, 500, catalogdomain.FoodNonVeg, 2, 30, true, true, true},
+			"/dishes/chicken-biryani.jpg", catBiryaniID, 289, 349, 500, catalogdomain.FoodNonVeg, 2, 30, true, true, true},
 		{"Mutton Dum Biryani", "Slow-cooked mutton with saffron and kewra.",
-			catBiryaniID, 389, 0, 500, catalogdomain.FoodNonVeg, 2, 40, true, true, true},
+			"/dishes/mutton-biryani.jpg", catBiryaniID, 389, 0, 500, catalogdomain.FoodNonVeg, 2, 40, true, true, true},
 		{"Subz Dum Biryani", "Seasonal vegetables layered with rice and fried onion.",
-			catBiryaniID, 219, 0, 500, catalogdomain.FoodVeg, 1, 25, false, true, true},
+			"/dishes/thali.jpg", catBiryaniID, 219, 0, 500, catalogdomain.FoodVeg, 1, 25, false, true, true},
 		{"Galouti Kebab", "The famously soft Lucknawi kebab, six pieces.",
-			catKebabID, 259, 0, 500, catalogdomain.FoodNonVeg, 1, 20, true, false, false},
+			"/dishes/seekh-kebab.jpg", catKebabID, 259, 0, 500, catalogdomain.FoodNonVeg, 1, 20, true, false, false},
 		{"Kakori Kebab", "Minced mutton on a skewer, char-grilled.",
-			catKebabID, 279, 0, 500, catalogdomain.FoodNonVeg, 2, 22, false, false, false},
+			"/dishes/tandoori-platter.jpg", catKebabID, 279, 0, 500, catalogdomain.FoodNonVeg, 2, 22, false, false, false},
 		{"Paneer Tikka", "Char-grilled cottage cheese with pickled onion.",
-			catKebabID, 229, 0, 500, catalogdomain.FoodVeg, 1, 18, false, false, false},
+			"/dishes/paneer-tikka.jpg", catKebabID, 229, 0, 500, catalogdomain.FoodVeg, 1, 18, false, false, false},
 		{"Warqi Paratha", "Flaky layered paratha, two pieces.",
-			catBreadID, 79, 0, 500, catalogdomain.FoodVeg, 0, 10, false, false, false},
+			"/dishes/naan.jpg", catBreadID, 79, 0, 500, catalogdomain.FoodVeg, 0, 10, false, false, false},
 		{"Sheermal", "Saffron-sweetened flatbread.",
-			catBreadID, 69, 0, 500, catalogdomain.FoodVeg, 0, 10, false, false, false},
+			"/dishes/naan.jpg", catBreadID, 69, 0, 500, catalogdomain.FoodVeg, 0, 10, false, false, false},
 		// 18% GST, not 5%: packaged beverages are taxed differently from prepared
 		// food. This is exactly why tax_bps is per item.
 		{"Masala Chaas", "Spiced buttermilk, 300ml.",
-			catDrinkID, 59, 0, 1800, catalogdomain.FoodVeg, 0, 2, false, false, false},
+			"", catDrinkID, 59, 0, 1800, catalogdomain.FoodVeg, 0, 2, false, false, false},
 		{"Bottled Water", "1 litre.",
-			catDrinkID, 20, 0, 1800, catalogdomain.FoodVeg, 0, 1, false, false, false},
+			"", catDrinkID, 20, 0, 1800, catalogdomain.FoodVeg, 0, 1, false, false, false},
 	}
 
 	created := 0
@@ -278,6 +284,7 @@ func run(force bool) error {
 			CategoryID:    &cat,
 			Name:          si.name,
 			Description:   si.description,
+			ImageURL:      si.image,
 			Price:         money.FromRupees(si.rupees),
 			TaxBps:        si.taxBps,
 			PackagingFee:  money.FromRupees(5),

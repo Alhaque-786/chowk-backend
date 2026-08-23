@@ -52,8 +52,12 @@ func New(deps Deps) *Module {
 
 func (m *Module) Name() string { return "promotion" }
 
-// CustomerRoutes: browse offers, check a code before checkout.
-func (m *Module) CustomerRoutes() http.Handler { return m.handler.CustomerRoutes() }
+// CustomerRoutes: browse offers (public), check a code before checkout
+// (authenticated). The middleware is passed through from the composition root --
+// see the handler for why the two live in one subtree.
+func (m *Module) CustomerRoutes(authenticate func(http.Handler) http.Handler) http.Handler {
+	return m.handler.CustomerRoutes(authenticate)
+}
 
 // AdminRoutes: create and deactivate coupons.
 func (m *Module) AdminRoutes() http.Handler { return m.handler.AdminRoutes() }

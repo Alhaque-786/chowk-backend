@@ -22,7 +22,7 @@ func NewKitchenRepository(db *database.DB) *KitchenRepository {
 }
 
 const kitchenColumns = `
-	id, merchant_id, name, slug, description, cuisines, phone, email,
+	id, merchant_id, name, slug, description, cuisines, cover_image_url, phone, email,
 	address_line1, city, pincode, latitude, longitude, delivery_radius_m,
 	is_active, is_accepting_orders, pause_reason,
 	commission_bps, packaging_fee_minor, min_order_minor, avg_prep_minutes,
@@ -32,13 +32,13 @@ const kitchenColumns = `
 func (r *KitchenRepository) Create(ctx context.Context, k *domain.Kitchen) error {
 	const q = `
 		INSERT INTO kitchens (
-			id, merchant_id, name, slug, description, cuisines, phone, email,
+			id, merchant_id, name, slug, description, cuisines, cover_image_url, phone, email,
 			address_line1, city, pincode, latitude, longitude, delivery_radius_m,
 			is_active, is_accepting_orders, pause_reason,
 			commission_bps, packaging_fee_minor, min_order_minor, avg_prep_minutes,
 			fssai_license, gstin, is_first_party, version, created_at, updated_at
-		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,
-		          $18,$19,$20,$21,$22,$23,$24,1,$25,$26)`
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,
+		          $19,$20,$21,$22,$23,$24,$25,1,$26,$27)`
 
 	// Postgres distinguishes NULL from an empty array, and the column is NOT
 	// NULL. A caller with no cuisines set should get an empty array, not a raw
@@ -49,7 +49,7 @@ func (r *KitchenRepository) Create(ctx context.Context, k *domain.Kitchen) error
 	}
 
 	_, err := r.db.Q(ctx).Exec(ctx, q,
-		k.ID, k.MerchantID, k.Name, k.Slug, k.Description, cuisines, k.Phone, k.Email,
+		k.ID, k.MerchantID, k.Name, k.Slug, k.Description, cuisines, k.CoverImageURL, k.Phone, k.Email,
 		k.AddressLine1, k.City, k.Pincode, k.Latitude, k.Longitude, k.DeliveryRadiusM,
 		k.IsActive, k.IsAcceptingOrders, k.PauseReason,
 		k.CommissionBps, k.PackagingFee.Minor(), k.MinOrder.Minor(), k.AvgPrepMinutes,
@@ -72,16 +72,17 @@ func (r *KitchenRepository) Create(ctx context.Context, k *domain.Kitchen) error
 func (r *KitchenRepository) Update(ctx context.Context, k *domain.Kitchen) error {
 	const q = `
 		UPDATE kitchens SET
-			name = $2, slug = $3, description = $4, cuisines = $5, phone = $6, email = $7,
-			address_line1 = $8, city = $9, pincode = $10, latitude = $11, longitude = $12,
-			delivery_radius_m = $13, is_active = $14, is_accepting_orders = $15,
-			pause_reason = $16, commission_bps = $17, packaging_fee_minor = $18,
-			min_order_minor = $19, avg_prep_minutes = $20, fssai_license = $21, gstin = $22,
-			version = version + 1, updated_at = $23
-		WHERE id = $1 AND version = $24`
+			name = $2, slug = $3, description = $4, cuisines = $5, cover_image_url = $6,
+			phone = $7, email = $8,
+			address_line1 = $9, city = $10, pincode = $11, latitude = $12, longitude = $13,
+			delivery_radius_m = $14, is_active = $15, is_accepting_orders = $16,
+			pause_reason = $17, commission_bps = $18, packaging_fee_minor = $19,
+			min_order_minor = $20, avg_prep_minutes = $21, fssai_license = $22, gstin = $23,
+			version = version + 1, updated_at = $24
+		WHERE id = $1 AND version = $25`
 
 	tag, err := r.db.Q(ctx).Exec(ctx, q,
-		k.ID, k.Name, k.Slug, k.Description, k.Cuisines, k.Phone, k.Email,
+		k.ID, k.Name, k.Slug, k.Description, k.Cuisines, k.CoverImageURL, k.Phone, k.Email,
 		k.AddressLine1, k.City, k.Pincode, k.Latitude, k.Longitude,
 		k.DeliveryRadiusM, k.IsActive, k.IsAcceptingOrders,
 		k.PauseReason, k.CommissionBps, k.PackagingFee.Minor(),
@@ -276,7 +277,7 @@ func scanKitchen(row scanner) (*domain.Kitchen, error) {
 		ratingAvg              float64
 	)
 	if err := row.Scan(
-		&k.ID, &k.MerchantID, &k.Name, &k.Slug, &k.Description, &k.Cuisines, &k.Phone, &k.Email,
+		&k.ID, &k.MerchantID, &k.Name, &k.Slug, &k.Description, &k.Cuisines, &k.CoverImageURL, &k.Phone, &k.Email,
 		&k.AddressLine1, &k.City, &k.Pincode, &k.Latitude, &k.Longitude, &k.DeliveryRadiusM,
 		&k.IsActive, &k.IsAcceptingOrders, &k.PauseReason,
 		&k.CommissionBps, &packagingFee, &minOrder, &k.AvgPrepMinutes,
