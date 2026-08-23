@@ -15,6 +15,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"log/slog"
 	"os"
 	"time"
 
@@ -79,6 +80,192 @@ func existingNames(ctx context.Context, db *database.DB, q string, args ...any) 
 		out[name] = true
 	}
 	return out, rows.Err()
+}
+
+// devDish is one row of a neighbouring kitchen's menu.
+type devDish struct {
+	category string
+	name     string
+	desc     string
+	image    string
+	rupees   float64
+	foodType catalogdomain.FoodType
+	prepMins int32
+	spice    int16
+	popular  bool
+}
+
+// seedDevMenus gives every DEV-FIXTURE kitchen a small, believable menu.
+//
+// Idempotent by NAME, like the Khansama seeding above: the existing dish names for
+// a kitchen are read once and anything already present is skipped. Without that,
+// each run appends another copy — which is exactly the bug this seeder had before.
+func seedDevMenus(
+	ctx context.Context,
+	db *database.DB,
+	menus interface {
+		CreateCategory(context.Context, *catalogdomain.Category) error
+		CreateItem(context.Context, *catalogdomain.MenuItem) error
+	},
+	// InvalidateMenu is required, not optional. See the call at the end of the
+	// loop for why leaving it out silently produced empty menus.
+	invalidate func(context.Context, id.ID) error,
+	log *slog.Logger,
+) error {
+	dishes := map[string][]devDish{
+		"tunday-kababi": {
+			{"Kebabs", "Tunday Galouti", "The one the city is named for. Melts before you chew.", "/dishes/seekh-kebab.jpg", 189, catalogdomain.FoodNonVeg, 15, 2, true},
+			{"Kebabs", "Mutton Seekh", "Minced mutton, charred on the skewer.", "/dishes/tandoori-platter.jpg", 229, catalogdomain.FoodNonVeg, 18, 2, false},
+			{"Kebabs", "Veg Shami", "Chana and potato, bound and shallow fried.", "/dishes/samosa.jpg", 149, catalogdomain.FoodVeg, 14, 1, false},
+			{"Breads", "Ulte Tawe Ka Paratha", "Cooked on an upturned griddle, as it should be.", "/dishes/naan.jpg", 59, catalogdomain.FoodVeg, 8, 0, false},
+		},
+		"dakshin-tiffin": {
+			{"Dosa", "Masala Dosa", "Fermented overnight, filled with potato masala.", "/dishes/dosa.jpg", 129, catalogdomain.FoodVeg, 12, 1, true},
+			{"Dosa", "Ghee Roast", "Thin, crisp, and more ghee than is sensible.", "/dishes/dosa.jpg", 149, catalogdomain.FoodVeg, 12, 1, false},
+			{"Thali", "South Indian Thali", "Rice, sambar, three vegetables, curd, payasam.", "/dishes/thali.jpg", 199, catalogdomain.FoodVeg, 15, 1, true},
+			{"Drinks", "Filter Coffee", "Decoction and milk, poured properly.", "", 49, catalogdomain.FoodVeg, 4, 0, false},
+		},
+		"chowk-chaat-house": {
+			{"Chaat", "Tokri Chaat", "A basket of fried potato, filled and collapsed.", "/dishes/cover-streetfood.jpg", 119, catalogdomain.FoodVeg, 8, 2, true},
+			{"Chaat", "Aloo Tikki", "Griddled, split, and drowned in chutney.", "/dishes/samosa.jpg", 89, catalogdomain.FoodVeg, 7, 2, false},
+			{"Chaat", "Samosa Chaat", "Two samosas, broken, with chole over them.", "/dishes/samosa.jpg", 99, catalogdomain.FoodVeg, 8, 2, false},
+			{"Snacks", "Bhalla Papdi", "Soft dahi bhalla under crisp papdi.", "/dishes/chole-bhature.jpg", 109, catalogdomain.FoodVeg, 6, 1, false},
+		},
+		"ram-asrey-sweets": {
+			{"Sweets", "Malai Gilori", "Rolled khoya, silver leaf, sold by the piece.", "/dishes/gulab-jamun.jpg", 60, catalogdomain.FoodVeg, 2, 0, true},
+			{"Sweets", "Makhan Malai", "Winter only, and gone by nine in the morning.", "/dishes/kheer.jpg", 80, catalogdomain.FoodVeg, 2, 0, true},
+			{"Sweets", "Gulab Jamun", "Two pieces, warm, in syrup.", "/dishes/gulab-jamun.jpg", 70, catalogdomain.FoodVeg, 3, 0, false},
+		},
+		"nawabi-dum-pukht": {
+			{"Biryani", "Dum Pukht Gosht Biryani", "Sealed with dough and cooked six hours.", "/dishes/chicken-biryani.jpg", 549, catalogdomain.FoodNonVeg, 48, 2, true},
+			{"Biryani", "Subz Dum Biryani", "The same handi, vegetables instead.", "/dishes/mutton-biryani.jpg", 379, catalogdomain.FoodVeg, 42, 1, false},
+			{"Curries", "Nihari", "Overnight shank. Order it with sheermal.", "/dishes/rogan-josh.jpg", 449, catalogdomain.FoodNonVeg, 45, 3, true},
+			{"Curries", "Shahi Paneer", "Cashew and cardamom, no tomato.", "/dishes/butter-chicken.jpg", 329, catalogdomain.FoodVeg, 25, 1, false},
+			{"Breads", "Sheermal", "Saffron, slightly sweet, from the tandoor.", "/dishes/naan.jpg", 69, catalogdomain.FoodVeg, 10, 0, false},
+		},
+	}
+
+	type row struct {
+		kitchenID id.ID
+		slug      string
+	}
+	var kitchens []row
+
+	rows, err := db.Q(ctx).Query(ctx,
+		`SELECT id, slug FROM kitchens WHERE fssai_license = 'DEV-FIXTURE' ORDER BY slug`)
+	if err != nil {
+		return fmt.Errorf("seed: list dev kitchens: %w", err)
+	}
+	for rows.Next() {
+		var r row
+		if err := rows.Scan(&r.kitchenID, &r.slug); err != nil {
+			rows.Close()
+			return fmt.Errorf("seed: scan dev kitchen: %w", err)
+		}
+		kitchens = append(kitchens, r)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	added := 0
+	for _, k := range kitchens {
+		menu, ok := dishes[k.slug]
+		if !ok {
+			continue
+		}
+
+		existing, err := existingNames(ctx, db,
+			`SELECT name FROM menu_items WHERE kitchen_id = $1`, k.kitchenID)
+		if err != nil {
+			return err
+		}
+
+		// Categories are created on first use and reused after, so the order of
+		// `menu` decides display order and no separate category list is needed.
+		catIDs := make(map[string]id.ID)
+		order := int32(0)
+
+		for _, d := range menu {
+			catID, seen := catIDs[d.category]
+			if !seen {
+				order++
+				catID = id.New()
+				now := time.Now().UTC()
+				c := &catalogdomain.Category{
+					ID: catID, KitchenID: k.kitchenID, Name: d.category,
+					DisplayOrder: order, IsActive: true, CreatedAt: now, UpdatedAt: now,
+				}
+				if err := menus.CreateCategory(ctx, c); err != nil {
+					// Already there from a previous run; look it up instead.
+					var found id.ID
+					if e := db.Q(ctx).QueryRow(ctx,
+						`SELECT id FROM menu_categories WHERE kitchen_id = $1 AND name = $2`,
+						k.kitchenID, d.category).Scan(&found); e != nil {
+						return fmt.Errorf("seed: category %q for %s: %w", d.category, k.slug, err)
+					}
+					catID = found
+				}
+				catIDs[d.category] = catID
+			}
+
+			if existing[d.name] {
+				continue
+			}
+
+			now := time.Now().UTC()
+			cat := catID
+			item := &catalogdomain.MenuItem{
+				ID: id.New(), KitchenID: k.kitchenID, CategoryID: &cat,
+				Name: d.name, Description: d.desc, ImageURL: d.image,
+				Price: money.FromRupees(d.rupees),
+				// 5% GST on prepared food, matching the Khansama items. Drinks
+				// would be 18%, but none of these fixtures is a packaged beverage.
+				TaxBps:        500,
+				PackagingFee:  money.FromRupees(5),
+				FoodType:      d.foodType,
+				SpiceLevel:    d.spice,
+				Allergens:     []string{},
+				Serves:        1,
+				IsAvailable:   true,
+				PrepMinutes:   d.prepMins,
+				DisplayOrder:  order*100 + int32(len(existing)),
+				IsRecommended: d.popular,
+				Version:       1,
+				CreatedAt:     now,
+				UpdatedAt:     now,
+			}
+			if err := item.Validate(); err != nil {
+				return fmt.Errorf("dev dish %q invalid: %w", d.name, err)
+			}
+			if err := menus.CreateItem(ctx, item); err != nil {
+				return err
+			}
+			existing[d.name] = true
+			added++
+		}
+
+		/*
+		  INVALIDATE, ALWAYS — not only when something was added.
+
+		  The menu is cached in Redis. Two of these kitchens had been browsed while
+		  they still had no dishes, so an EMPTY menu was cached for them, and after
+		  seeding the API kept serving that empty menu: four dishes in Postgres,
+		  zero over HTTP. The rows were fine; the cache was authoritative and wrong.
+
+		  Unconditional rather than `if added > 0`, because the stale entry is not
+		  caused by this run — it was cached earlier, by a read. A seeder that only
+		  invalidates what it just wrote cannot fix a cache poisoned before it ran,
+		  which is precisely the case that bit here.
+		*/
+		if err := invalidate(ctx, k.kitchenID); err != nil {
+			return fmt.Errorf("seed: invalidate menu for %s: %w", k.slug, err)
+		}
+	}
+
+	log.Info("seeded dev menus", "kitchens", len(kitchens), "dishes_added", added)
+	return nil
 }
 
 func run(force bool) error {
@@ -556,6 +743,22 @@ func run(force bool) error {
 		return fmt.Errorf("seed offers: %w", err)
 	}
 	log.Info("seeded offers", "inserted", tag.RowsAffected())
+
+	// --- Menus for the neighbouring dev kitchens ---------------------------
+	//
+	// Without these, five of the six kitchens on the home page led to "Nothing
+	// available right now". The grid looked finished and four fifths of it was a
+	// dead end — which is worse than showing fewer kitchens, because the customer
+	// only finds out after a tap.
+	//
+	// Deliberately SMALL menus, three to five dishes each. The point is a
+	// believable second kitchen to navigate to, not a fixture that takes longer to
+	// read than the code around it. Each carries a real image so the cards and the
+	// dish thumbnails are populated, and a mix of veg and non-veg so the veg filter
+	// has something to do on more than one kitchen.
+	if err := seedDevMenus(ctx, db, menus, mod.Service().InvalidateMenu, log); err != nil {
+		return err
+	}
 
 	// The menu is cached; a stale entry would hide everything just seeded.
 	if err := mod.Service().InvalidateMenu(ctx, khansamaKitchenID); err != nil {
