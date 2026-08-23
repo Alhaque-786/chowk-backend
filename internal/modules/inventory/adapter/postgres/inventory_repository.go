@@ -278,12 +278,18 @@ func NewRecipeRepository(db *database.DB) *RecipeRepository {
 //
 // ON CONFLICT rather than delete-then-insert: listing the same ingredient twice
 // for a dish would double-count consumption, and the unique index prevents it.
+//
+// `is_active = true` in the DO UPDATE is what makes re-adding a removed
+// ingredient REACTIVATE its existing line rather than insert a second one. The
+// unique index is deliberately full rather than partial so that this works — see
+// migration 0015 for why the partial version broke conflict inference entirely.
 func (r *RecipeRepository) Upsert(ctx context.Context, line *domain.RecipeLine) error {
 	const q = `
 		INSERT INTO recipes (id, menu_item_id, ingredient_id, quantity, wastage_bps, is_optional, created_at)
 		VALUES ($1,$2,$3,$4,$5,$6,now())
 		ON CONFLICT (menu_item_id, ingredient_id)
-		DO UPDATE SET quantity = $4, wastage_bps = $5, is_optional = $6`
+		DO UPDATE SET quantity = $4, wastage_bps = $5, is_optional = $6,
+		              is_active = true`
 
 	lineID := line.ID
 	if id.IsNil(lineID) {
@@ -301,10 +307,22 @@ func (r *RecipeRepository) Upsert(ctx context.Context, line *domain.RecipeLine) 
 	return nil
 }
 
+// Delete deactivates a recipe line. It does NOT remove the row.
+//
+// A recipe line is a bill of materials, and the row is the only record of what a
+// dish USED to contain. That is exactly the question an allergen complaint asks
+// six months later, and a DELETE makes it unanswerable.
+//
+// Not an error when it is already inactive, or absent: removing an ingredient
+// that is not in the recipe has achieved what the caller wanted, and failing here
+// would make an idempotent menu edit fail on its second attempt.
 func (r *RecipeRepository) Delete(ctx context.Context, menuItemID, ingredientID id.ID) error {
-	const q = `DELETE FROM recipes WHERE menu_item_id = $1 AND ingredient_id = $2`
+	const q = `
+		UPDATE recipes SET is_active = false
+		 WHERE menu_item_id = $1 AND ingredient_id = $2 AND is_active`
+
 	if _, err := r.db.Q(ctx).Exec(ctx, q, menuItemID, ingredientID); err != nil {
-		return apperr.Internal(fmt.Errorf("inventory: delete recipe: %w", err))
+		return apperr.Internal(fmt.Errorf("inventory: deactivate recipe line: %w", err))
 	}
 	return nil
 }
@@ -323,7 +341,7 @@ func (r *RecipeRepository) LoadForMenuItems(ctx context.Context, menuItemIDs []i
 		       r.is_optional, i.name, i.unit
 		FROM recipes r
 		JOIN ingredients i ON i.id = r.ingredient_id
-		WHERE r.menu_item_id = ANY($1) AND i.is_active`
+		WHERE r.menu_item_id = ANY($1) AND r.is_active AND i.is_active`
 
 	rows, err := r.db.Q(ctx).Query(ctx, q, menuItemIDs)
 	if err != nil {
@@ -357,7 +375,9 @@ func (r *RecipeRepository) MenuItemsUsingAny(ctx context.Context, ingredientIDs 
 		return nil, nil
 	}
 
-	const q = `SELECT DISTINCT menu_item_id FROM recipes WHERE ingredient_id = ANY($1)`
+	const q = `
+		SELECT DISTINCT menu_item_id FROM recipes
+		 WHERE ingredient_id = ANY($1) AND is_active`
 
 	rows, err := r.db.Q(ctx).Query(ctx, q, ingredientIDs)
 	if err != nil {

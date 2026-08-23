@@ -76,11 +76,31 @@ func (r *AddressRepository) Update(ctx context.Context, a *domain.Address) error
 	return nil
 }
 
+// Delete deactivates an address. It does NOT remove the row.
+//
+// Orders carry `delivery_address_id`, so removing the row leaves that pointing at
+// nothing and makes "which of this customer's addresses was this order sent to"
+// unanswerable. The order's own delivery_* snapshot survives either way, but the
+// link is worth keeping.
+//
+// `is_default` is cleared at the same time, deliberately. Leaving a deactivated
+// row flagged default would be invisible to every read here and yet still occupy
+// the one-default-per-user slot until the partial index's `is_active` clause
+// excluded it -- which it now does, but relying on that would mean the row's
+// state is self-contradictory. A removed address is not anybody's default.
+//
+// Already-inactive is treated as NOT FOUND rather than as success. Reporting
+// success for a second delete would tell the caller a row exists when, as far as
+// the API is concerned, it does not.
 func (r *AddressRepository) Delete(ctx context.Context, userID, addressID id.ID) error {
-	const q = `DELETE FROM addresses WHERE id = $1 AND user_id = $2`
+	const q = `
+		UPDATE addresses
+		   SET is_active = false, is_default = false, updated_at = now()
+		 WHERE id = $1 AND user_id = $2 AND is_active`
+
 	tag, err := r.db.Q(ctx).Exec(ctx, q, addressID, userID)
 	if err != nil {
-		return apperr.Internal(fmt.Errorf("identity: delete address: %w", err))
+		return apperr.Internal(fmt.Errorf("identity: deactivate address: %w", err))
 	}
 	if tag.RowsAffected() == 0 {
 		return apperr.NotFound("ADDRESS_NOT_FOUND", "That address could not be found.")
@@ -89,7 +109,10 @@ func (r *AddressRepository) Delete(ctx context.Context, userID, addressID id.ID)
 }
 
 func (r *AddressRepository) FindByID(ctx context.Context, userID, addressID id.ID) (*domain.Address, error) {
-	q := `SELECT ` + addressColumns + ` FROM addresses WHERE id = $1 AND user_id = $2`
+	// `AND is_active`: a removed address must be invisible to every read, or the
+	// soft delete is only cosmetic and checkout would happily accept a deleted one.
+	q := `SELECT ` + addressColumns + `
+		FROM addresses WHERE id = $1 AND user_id = $2 AND is_active`
 
 	addr, err := scanAddress(r.db.Q(ctx).QueryRow(ctx, q, addressID, userID))
 	if err != nil {
@@ -104,7 +127,8 @@ func (r *AddressRepository) FindByID(ctx context.Context, userID, addressID id.I
 }
 
 func (r *AddressRepository) ListForUser(ctx context.Context, userID id.ID) ([]*domain.Address, error) {
-	q := `SELECT ` + addressColumns + ` FROM addresses WHERE user_id = $1
+	q := `SELECT ` + addressColumns + `
+		FROM addresses WHERE user_id = $1 AND is_active
 		ORDER BY is_default DESC, created_at DESC`
 
 	rows, err := r.db.Q(ctx).Query(ctx, q, userID)
@@ -128,7 +152,7 @@ func (r *AddressRepository) ListForUser(ctx context.Context, userID id.ID) ([]*d
 // same transaction, satisfying the one-default-per-user index.
 func (r *AddressRepository) ClearDefault(ctx context.Context, userID id.ID) error {
 	const q = `UPDATE addresses SET is_default = false, updated_at = now()
-		WHERE user_id = $1 AND is_default`
+		WHERE user_id = $1 AND is_default AND is_active`
 	if _, err := r.db.Q(ctx).Exec(ctx, q, userID); err != nil {
 		return apperr.Internal(fmt.Errorf("identity: clear default address: %w", err))
 	}

@@ -126,8 +126,31 @@ tidy: ## Tidy and verify go.mod
 	go mod tidy
 	go mod verify
 
+.PHONY: check-soft-delete
+check-soft-delete: ## Fail if a business table is hard-deleted
+	# The soft-delete policy is only real if something enforces it. Code review
+	# will not catch a DELETE reliably -- it is one word, it looks correct, and the
+	# damage is invisible until somebody asks a question about the past.
+	#
+	# Test files are excluded: a test that leaves rows behind pollutes the shared
+	# development database, which is a bug of its own. See migration 0014 for why
+	# each allowlisted table is exempt.
+	@echo "checking soft-delete policy..."
+	@allowed='idempotency_keys|sessions|kitchen_hours'; \
+	found=$$(grep -rn "DELETE FROM" --include="*.go" internal/ cmd/ \
+		| grep -v "_test.go" \
+		| grep -vE "DELETE FROM ($$allowed)" || true); \
+	if [ -n "$$found" ]; then \
+		echo "  VIOLATION: hard delete of a business record"; \
+		echo "$$found" | sed 's/^/    /'; \
+		echo "             use is_active = false, or add the table to the"; \
+		echo "             allowlist in this target WITH a reason in a migration"; \
+		exit 1; \
+	fi; \
+	echo "  ok: no business record is hard-deleted"
+
 .PHONY: check
-check: fmt vet test ## Everything CI runs. Run this before pushing.
+check: fmt vet test check-boundaries check-soft-delete ## Everything CI runs. Run this before pushing.
 
 # --- architecture enforcement ----------------------------------------------
 

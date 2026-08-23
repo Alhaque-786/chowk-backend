@@ -366,3 +366,65 @@ Honest list. Nothing here is built.
 - Runbooks (dead-letter drain, stuck settlement, breaker stuck open)
 - Backup/restore and PITR verification — *untested backups are not backups*
 - Load test establishing actual capacity
+
+## Soft delete
+
+**Business records are never hard-deleted.** A row is deactivated with
+`is_active = false`; it stays in the table.
+
+The reason is not sentiment about data. In an ordering system the row is the only
+evidence the thing existed, and that evidence answers questions asked months
+later: what did this dish contain when it made somebody ill, where did order
+CK-9EVDJPKV actually go, why does last quarter's food cost not reconcile. A
+`DELETE` cannot be reviewed, reversed, or explained to an auditor.
+
+`is_active BOOLEAN` rather than `deleted_at TIMESTAMPTZ`, because this schema
+already made that choice — kitchens, menu_items, ingredients, device_tokens,
+coupons, addresses and recipes all use it. A second convention would mean every
+reader has to learn which tables use which.
+
+### What is exempt, and why
+
+| Table | Why a hard delete is correct |
+| --- | --- |
+| `idempotency_keys` | A deduplication mechanism with a TTL, not a record. The row's only job is to be found again inside its window. |
+| `sessions` | Only rows already past `expires_at`. An expired session is litter, not history. |
+| `kitchen_hours` | Replaced as a SET on update. Keeping superseded rows would need a validity period per row to be readable at all. **Known limitation:** we cannot answer "what were the opening hours last Tuesday". |
+| test fixtures | A test that leaves rows behind pollutes the shared development database. |
+
+Enforced by `make check-soft-delete`, which greps for `DELETE FROM` outside that
+allowlist and fails. Adding a table to the allowlist requires a reason in a
+migration, because the check is the only thing standing between the policy and a
+single word that looks correct in review.
+
+### The index trap
+
+When you add `is_active` to a table that has a unique index, decide which kind
+you need — and this is the classic soft-delete bug, because the delete appears to
+work and the NEXT insert fails with a confusing constraint violation.
+
+**Make it partial** when a deactivated row must NOT reserve the slot:
+
+```sql
+CREATE UNIQUE INDEX addresses_one_default_per_user_idx
+    ON addresses (user_id) WHERE is_default AND is_active;
+```
+
+Without `is_active`, a removed default address keeps the one-default slot and the
+customer can never set another.
+
+**Keep it full** when the row IS the identity and should be reused:
+
+```sql
+CREATE UNIQUE INDEX recipes_item_ingredient_key
+    ON recipes (menu_item_id, ingredient_id);
+```
+
+Then the upsert reactivates: `DO UPDATE SET ..., is_active = true`. Re-adding an
+ingredient revives the line it had before instead of accumulating a second row.
+
+**And know this before you reach for a partial one:** `ON CONFLICT (cols)` cannot
+infer a partial index unless the statement repeats its predicate
+(`ON CONFLICT (cols) WHERE is_active`). Migration 0014 made the recipes index
+partial and broke every recipe write with *"there is no unique or exclusion
+constraint matching the ON CONFLICT specification"*; 0015 reverted it.
