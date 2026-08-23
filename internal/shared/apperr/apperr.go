@@ -99,19 +99,35 @@ func Internal(cause error) *Error {
 	}
 }
 
+// CodeOf reports the stable machine-readable code of an error, or "" if the
+// error is not an *Error.
+//
+// Kind alone is often too coarse to assert on. Two conflicts can mean completely
+// different things -- "this coupon is used up" and "too many people are doing
+// this at once" are both KindConflict, and a test that only checks the kind
+// cannot tell them apart. The code can.
+func CodeOf(err error) string {
+	if e, ok := errors.AsType[*Error](err); ok {
+		return e.Code
+	}
+	return ""
+}
+
 // KindOf reports the classification of any error, defaulting to KindInternal
 // so an unclassified error can never accidentally read as a client mistake.
 func KindOf(err error) Kind {
-	var e *Error
-	if errors.As(err, &e) {
+	if e, ok := errors.AsType[*Error](err); ok {
 		return e.Kind
 	}
 	return KindInternal
 }
 
 // As extracts the *Error from a chain, reporting whether one was present.
+//
+// errors.AsType rather than errors.As with an out-parameter: it returns the
+// typed value directly, so there is no zero-valued variable in scope that a
+// later edit could read on the false branch. Same semantics, one fewer way to
+// get it wrong.
 func As(err error) (*Error, bool) {
-	var e *Error
-	ok := errors.As(err, &e)
-	return e, ok
+	return errors.AsType[*Error](err)
 }

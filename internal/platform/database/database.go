@@ -16,6 +16,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/rand/v2"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -23,6 +24,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/zevoxa/chowk-backend/internal/config"
+	"github.com/zevoxa/chowk-backend/internal/shared/apperr"
 )
 
 // Querier is the subset of pgx satisfied by both *pgxpool.Pool and pgx.Tx.
@@ -137,9 +139,28 @@ func (db *DB) InTxOpts(ctx context.Context, opts pgx.TxOptions, fn func(ctx cont
 	return nil
 }
 
-// RetrySerializable runs fn under SERIALIZABLE, retrying up to attempts times on
-// serialization failure with linear backoff. Postgres reports these as
-// retryable by contract, so the caller does not have to distinguish them.
+// RetrySerializable runs fn under SERIALIZABLE, retrying on serialization
+// failure. Postgres reports these as retryable by contract, so the caller does
+// not have to distinguish them.
+//
+// TWO THINGS HERE ARE NOT INCIDENTAL.
+//
+// JITTER. The backoff was `(i+1) * 10ms` with no randomness, which is the
+// thundering-herd shape: every racer that loses a serialization conflict sleeps
+// for the SAME duration and they all retry into each other again. Six callers
+// contending for one coupon's last slots would collide, back off in lockstep,
+// and collide again, so a caller could burn every attempt without the contention
+// ever thinning out. Randomising each sleep across a window is what actually
+// spreads them, and it is the same reasoning as the jittered retry in
+// internal/platform/resilience -- this one just predates it.
+//
+// EXHAUSTION IS A CONFLICT, NOT AN INTERNAL ERROR. Running out of attempts means
+// "too many people are doing this at once", which is a true and actionable thing
+// to tell a caller. Returning the raw pg error made it an INTERNAL_ERROR, so a
+// customer racing for the last coupon slot saw "Something went wrong on our end"
+// -- blaming us for what is ordinary contention, and giving the client no reason
+// to retry. Translating it here rather than at each call site means no service
+// can forget to.
 func (db *DB) RetrySerializable(ctx context.Context, attempts int, fn func(ctx context.Context) error) error {
 	if attempts < 1 {
 		attempts = 1
@@ -150,14 +171,35 @@ func (db *DB) RetrySerializable(ctx context.Context, attempts int, fn func(ctx c
 		if err == nil || !IsSerializationFailure(err) {
 			return err
 		}
+
+		// Exponential base with full jitter: sleep uniformly in [0, base). Full
+		// jitter rather than base+jitter because the aim is to SPREAD colliding
+		// racers, and a fixed floor keeps them bunched at that floor.
+		base := time.Duration(1<<uint(i)) * 10 * time.Millisecond
+		if base > maxSerializableBackoff {
+			base = maxSerializableBackoff
+		}
+		delay := time.Duration(rand.Int64N(int64(base)))
+
 		select {
 		case <-ctx.Done():
+			// The caller's deadline wins. Returning ctx.Err() rather than the
+			// serialization error, because "you ran out of time" is the more
+			// accurate description of what stopped us.
 			return ctx.Err()
-		case <-time.After(time.Duration(i+1) * 10 * time.Millisecond):
+		case <-time.After(delay):
 		}
 	}
-	return err
+
+	// Every attempt hit contention. Report it as such.
+	return apperr.Conflict("TOO_BUSY",
+		"Too many people are doing this at once. Please try again.").WithCause(err)
 }
+
+// maxSerializableBackoff caps the jitter window. Without a cap, a generous
+// attempts value would push the last sleep into the seconds, which for a request
+// sitting in a checkout is worse than failing.
+const maxSerializableBackoff = 200 * time.Millisecond
 
 // Postgres error codes we branch on. Repositories translate these into
 // apperr kinds so services never see a driver-specific error.

@@ -57,6 +57,29 @@ func setup(t *testing.T, in app.CreateCouponInput, participants int) *fixture {
 	}
 	f.couponID = coupon.ID
 
+	// Clean up after ourselves.
+	//
+	// These tests run against the SHARED development database, not a throwaway
+	// one, and without this every run left its coupons behind as active rows.
+	// GET /offers is public, so they surfaced in the customer UI: the home page
+	// was advertising eleven offers called "Test flat discount". A test that
+	// pollutes the product it is testing is a bug in the test.
+	//
+	// Redemptions go first: they hold an FK to the coupon, so deleting in the
+	// other order fails. Errors are logged rather than fatal -- a cleanup failure
+	// must not turn a passing test red, but it must not be silent either.
+	t.Cleanup(func() {
+		cleanupCtx := context.Background()
+		if _, err := f.db.Q(cleanupCtx).Exec(cleanupCtx,
+			`DELETE FROM coupon_redemptions WHERE coupon_id = $1`, coupon.ID); err != nil {
+			t.Logf("cleanup: coupon_redemptions for %s: %v", coupon.ID, err)
+		}
+		if _, err := f.db.Q(cleanupCtx).Exec(cleanupCtx,
+			`DELETE FROM coupons WHERE id = $1`, coupon.ID); err != nil {
+			t.Logf("cleanup: coupon %s: %v", coupon.ID, err)
+		}
+	})
+
 	// A distinct user and order per participant, so the per-user cap does not
 	// mask the global cap under test.
 	for i := 0; i < participants; i++ {
@@ -216,6 +239,7 @@ func TestConcurrentRedemptionsRespectGlobalCap(t *testing.T) {
 		mu        sync.Mutex
 		succeeded int
 		exhausted int
+		tooBusy   int
 		other     []error
 	)
 
@@ -233,11 +257,22 @@ func TestConcurrentRedemptionsRespectGlobalCap(t *testing.T) {
 
 			mu.Lock()
 			defer mu.Unlock()
-			switch {
+			// Asserted on the CODE, not just the kind.
+			//
+			// Both outcomes below are KindConflict, and they mean opposite things:
+			// COUPON_EXHAUSTED is the cap doing its job, TOO_BUSY is the caller
+			// running out of serialization retries without the cap ever being
+			// evaluated. Counting them together -- which this test used to do --
+			// means a run where every loser merely gave up on contention passes
+			// identically to one where the cap actually held. The point of the
+			// test is the difference.
+			switch code := apperr.CodeOf(err); {
 			case err == nil:
 				succeeded++
-			case apperr.KindOf(err) == apperr.KindConflict:
+			case code == "COUPON_EXHAUSTED":
 				exhausted++
+			case code == "TOO_BUSY":
+				tooBusy++
 			default:
 				other = append(other, err)
 			}
@@ -249,6 +284,14 @@ func TestConcurrentRedemptionsRespectGlobalCap(t *testing.T) {
 
 	for _, err := range other {
 		t.Errorf("unexpected error (not a cap conflict): %v", err)
+	}
+	// Zero, not "a few are fine". With jittered backoff over three attempts,
+	// six racers on one row should always resolve to a definite answer. A
+	// TOO_BUSY here means the backoff is not spreading them, which is exactly the
+	// regression the jitter was added to prevent -- and it would otherwise hide
+	// as a passing test, because TOO_BUSY is a conflict like COUPON_EXHAUSTED.
+	if tooBusy != 0 {
+		t.Errorf("%d callers exhausted their serialization retries; backoff is not spreading contention", tooBusy)
 	}
 	if succeeded != cap {
 		t.Errorf("%d redemptions succeeded, want exactly %d — the global cap was breached or under-filled",

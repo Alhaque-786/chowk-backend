@@ -18,10 +18,27 @@ import (
 // conflict.
 //
 // Under SERIALIZABLE, Postgres aborts one of two conflicting transactions and
-// reports a retryable error by contract. Three attempts is ample: contention is
-// only high in the last few redemptions of a capped coupon, and each retry is a
-// few milliseconds.
-const serializableRetries = 3
+// reports a retryable error by contract.
+//
+// EIGHT, NOT THREE. Three was chosen on the reasoning that "contention is only
+// high in the last few redemptions of a capped coupon" -- which is true, and is
+// exactly the case that matters, because that is when the cap is decided. The
+// budget has to cover the WORST case in that window, not the average.
+//
+// With N callers contending for one coupon row, each serialization round lets at
+// least one commit, so the unluckiest caller can be aborted up to N-1 times
+// before its turn. At three attempts the concurrency test failed roughly one run
+// in four with exactly one caller exhausting its retries -- and note what that
+// failure was and was not: the cap always held (exactly `cap` succeeded, ledger
+// and counter agreed), but one caller was told "too many people are doing this
+// at once" when the truthful answer was "this coupon is used up". A correct
+// outcome reported wrongly.
+//
+// Eight covers a realistic burst on a single coupon with headroom. It is cheap
+// to be generous: a retry only happens when a conflict already occurred, the
+// jittered backoff is capped at 200ms, and the alternative is telling a customer
+// something untrue about why their coupon failed.
+const serializableRetries = 8
 
 // PromotionService implements contracts.DiscountCalculator.
 type PromotionService struct {

@@ -326,6 +326,54 @@ func run(force bool) error {
 	}
 	log.Info("created menu items", "count", created)
 
+	// --- Offers -----------------------------------------------------------
+	//
+	// Seeded with SQL rather than through the promotion service, deliberately:
+	// this command already owns the catalog module wiring, and pulling in a
+	// second module's dependency graph to insert three rows would couple the
+	// seeder to promotion's constructor signature for no gain.
+	//
+	// Fixed UUIDs plus ON CONFLICT DO NOTHING, so re-running is a no-op rather
+	// than a growing pile of duplicate offers -- which is exactly what the
+	// integration tests used to leave behind in this database.
+	//
+	// The conflict target is upper(code), NOT id. That is the column customers
+	// actually collide on, and it is the real unique index: coupons_code_key is
+	// UNIQUE on upper(code), so codes are case-insensitively unique while the
+	// primary key is a surrogate. Targeting id looked right and failed on the
+	// first run here, because WELCOME50 already existed under a different UUID --
+	// a duplicate id is not the conflict that can happen, a duplicate code is.
+	//
+	// The empty kitchen_ids on the first two is meaningful: it means
+	// platform-wide, and the listing UI reads it that way.
+	const offers = `
+		INSERT INTO coupons (
+			id, code, description, discount_type, discount_value,
+			max_discount_minor, min_order_minor, kitchen_ids, first_order_only,
+			valid_from, max_redemptions_per_user, funded_by, is_active,
+			created_at, updated_at
+		) VALUES
+			('00000000-0000-0000-0000-0000000000c1', 'WELCOME50',
+			 '50% OFF up to Rs100', 'percentage', 5000, 10000, 19900, '{}', true,
+			 now(), 1, 'platform', true, now(), now()),
+			('00000000-0000-0000-0000-0000000000c2', 'CHOWK75',
+			 'Rs75 OFF above Rs349', 'flat', 7500, NULL, 34900, '{}', false,
+			 now(), 3, 'platform', true, now(), now()),
+			('00000000-0000-0000-0000-0000000000c3', 'KHANSAMA60',
+			 'Rs60 OFF on Awadhi', 'flat', 6000, NULL, 29900,
+			 ARRAY['00000000-0000-0000-0000-0000000000a1']::uuid[], false,
+			 now(), 2, 'merchant', true, now(), now())
+		ON CONFLICT (upper(code)) DO NOTHING`
+
+	// RowsAffected, not the literal 3: with DO NOTHING a re-run inserts nothing,
+	// and a log line claiming it created three offers every time is a log that
+	// lies about what happened.
+	tag, err := db.Q(ctx).Exec(ctx, offers)
+	if err != nil {
+		return fmt.Errorf("seed offers: %w", err)
+	}
+	log.Info("seeded offers", "inserted", tag.RowsAffected())
+
 	// The menu is cached; a stale entry would hide everything just seeded.
 	if err := mod.Service().InvalidateMenu(ctx, khansamaKitchenID); err != nil {
 		return err

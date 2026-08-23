@@ -108,15 +108,40 @@ func (r *CouponRepository) findOne(ctx context.Context, q string, args ...any) (
 //
 // The kitchen filter uses "empty array OR contains", because an empty
 // kitchen_ids means "valid everywhere" rather than "valid nowhere".
+// ListActive returns offers a customer can currently use.
+//
+// kitchenID is OPTIONAL, and the two cases mean different things:
+//
+//   - A kitchen given: offers usable at THAT kitchen. Platform-wide offers plus
+//     ones scoped to it, which is what a kitchen's own page wants.
+//   - id.Nil: every active offer, whatever its scope. This is what a LISTING page
+//     wants -- it renders many kitchens and attributes each offer using the
+//     kitchen_ids the API now returns.
+//
+// The nil case used to fall through to the same predicate with a zero UUID, so
+// `$2 = ANY(kitchen_ids)` matched nothing and a kitchen-scoped offer was
+// invisible on every listing. Passing a real NULL instead of the zero UUID is
+// what separates "no filter requested" from "filter by a kitchen that cannot
+// exist" -- id.Nil is a valid UUID value, so it could never express the
+// difference on its own.
 func (r *CouponRepository) ListActive(ctx context.Context, now time.Time, kitchenID id.ID) ([]*domain.Coupon, error) {
+	var filter any
+	if kitchenID != id.Nil {
+		filter = kitchenID
+	}
+
 	q := `SELECT ` + couponColumns + ` FROM coupons
 		WHERE is_active
 		  AND valid_from <= $1
 		  AND (valid_until IS NULL OR valid_until > $1)
 		  AND (max_redemptions IS NULL OR redemption_count < max_redemptions)
-		  AND (cardinality(kitchen_ids) = 0 OR $2 = ANY(kitchen_ids))
+		  AND (
+		        $2::uuid IS NULL
+		     OR cardinality(kitchen_ids) = 0
+		     OR $2 = ANY(kitchen_ids)
+		  )
 		ORDER BY min_order_minor, code`
-	return r.query(ctx, q, now, kitchenID)
+	return r.query(ctx, q, now, filter)
 }
 
 func (r *CouponRepository) ListAll(ctx context.Context, limit int) ([]*domain.Coupon, error) {
