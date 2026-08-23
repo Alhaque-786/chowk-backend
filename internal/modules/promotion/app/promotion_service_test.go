@@ -34,6 +34,16 @@ type fixture struct {
 // Committed rather than run inside a rolled-back transaction because these tests
 // are about genuine concurrency: two SERIALIZABLE transactions must be able to
 // conflict with each other, which is impossible inside a single one.
+// stubHistory reports whatever it is told about a customer's order history.
+//
+// Its zero value says "never ordered", which is the state most of these tests
+// want, so the majority need not think about it at all.
+type stubHistory struct{ ordered bool }
+
+func (h stubHistory) HasEverOrdered(context.Context, id.ID) (bool, error) {
+	return h.ordered, nil
+}
+
 func setup(t *testing.T, in app.CreateCouponInput, participants int) *fixture {
 	t.Helper()
 
@@ -46,7 +56,10 @@ func setup(t *testing.T, in app.CreateCouponInput, participants int) *fixture {
 	}
 	f.coupons = promotionpg.NewCouponRepository(db)
 	redemptions := promotionpg.NewRedemptionRepository(db)
-	f.service = app.NewPromotionService(db, f.coupons, redemptions, clock.System{})
+	// A stub history, so these tests do not need real orders. `false` means "has
+	// never ordered", which is the first-order case; TestFirstOrderOnlyCoupon
+	// exercises both sides explicitly.
+	f.service = app.NewPromotionService(db, f.coupons, redemptions, clock.System{}, stubHistory{})
 
 	if in.Code == "" {
 		in.Code = "TEST" + id.HumanCode(8)
@@ -635,7 +648,8 @@ func TestPercentageCouponRequiresACap(t *testing.T) {
 	service := app.NewPromotionService(db,
 		promotionpg.NewCouponRepository(db),
 		promotionpg.NewRedemptionRepository(db),
-		clock.System{})
+		clock.System{},
+		stubHistory{})
 
 	_, err := service.CreateCoupon(context.Background(), app.CreateCouponInput{
 		Code:                  "UNCAPPED" + id.HumanCode(6),
@@ -670,4 +684,68 @@ func containsStr(haystack, needle string) bool {
 		}
 	}
 	return false
+}
+
+// TestFirstOrderOnlyCouponIsResolvedNotAssumed is a regression test for a coupon
+// that could never be redeemed by anybody.
+//
+// `DiscountRequest.IsFirstOrder` was an INPUT that no caller ever set. So it was
+// always false, and every first_order_only coupon was rejected for every customer
+// — permanently, and invisibly, because the rejection is indistinguishable from a
+// legitimate one. The seeded WELCOME50 offer was dead on arrival.
+//
+// Promotion now resolves it by asking CustomerHistory. This asserts BOTH
+// directions, because a fix that only checks the happy path would pass just as
+// well if the answer were hardcoded to true — which would give the discount to
+// everybody and be a worse bug than the one it replaced.
+func TestFirstOrderOnlyCouponIsResolvedNotAssumed(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		hasOrdered  bool
+		wantApplied bool
+	}{
+		{"new customer gets the offer", false, true},
+		{"returning customer does not", true, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := setup(t, app.CreateCouponInput{
+				Description:           "First order only",
+				DiscountType:          "flat",
+				DiscountValue:         5000,
+				FirstOrderOnly:        true,
+				MaxRedemptionsPerUser: 1,
+			}, 1)
+
+			coupon, err := f.coupons.FindByID(context.Background(), f.couponID)
+			if err != nil {
+				t.Fatalf("load coupon: %v", err)
+			}
+
+			// Rebuilt with the history this case needs. Same repositories, so the
+			// coupon created by setup is the one under test.
+			service := app.NewPromotionService(
+				f.db,
+				f.coupons,
+				promotionpg.NewRedemptionRepository(f.db),
+				clock.System{},
+				stubHistory{ordered: tc.hasOrdered},
+			)
+
+			result, calcErr := service.Calculate(context.Background(), contracts.DiscountRequest{
+				UserID:    f.userIDs[0],
+				KitchenID: f.kitchenID,
+				// Deliberately NOT setting IsFirstOrder: the point is that the
+				// service resolves it rather than trusting the caller.
+				CouponCode: coupon.Code,
+				Subtotal:   money.FromRupees(500),
+			})
+			if calcErr != nil {
+				t.Fatalf("Calculate: %v", calcErr)
+			}
+			if result.Applied != tc.wantApplied {
+				t.Errorf("applied = %v, want %v (reason: %q)",
+					result.Applied, tc.wantApplied, result.RejectReason)
+			}
+		})
+	}
 }

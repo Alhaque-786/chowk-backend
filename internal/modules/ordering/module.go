@@ -133,3 +133,7 @@ func (m *Module) RegisterSubscribers(sub eventbus.Subscriber) {
 
 // KitchenService is exposed so the worker can run the abandoned-order reaper.
 func (m *Module) KitchenService() *app.KitchenOrderService { return m.kitchenService }
+
+// CustomerHistory answers "has this customer ordered before", for promotion's
+// first-order-only coupon rule. Ordering owns the orders; promotion owns the rule.
+func (m *Module) CustomerHistory() contracts.CustomerHistory { return m.orders }

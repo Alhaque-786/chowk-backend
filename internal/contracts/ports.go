@@ -89,15 +89,47 @@ type StockReserver interface {
 }
 
 // ---------------------------------------------------------------------------
+// Consumed by: promotion. Implemented by: ordering.
+// ---------------------------------------------------------------------------
+
+// CustomerHistory answers questions about a customer's past orders.
+//
+// It exists for one rule: a first-order-only coupon. Promotion owns that rule but
+// cannot see orders, and ordering owns orders but not the rule — so the answer has
+// to cross a seam, and this is the seam.
+//
+// Deliberately ONE narrow question rather than exposing an order repository. A
+// port shaped like "give me the orders" invites promotion to grow order logic; a
+// port shaped like "has this person ordered" cannot.
+type CustomerHistory interface {
+	// HasEverOrdered reports whether the customer has any order at all, in any
+	// state. Cancelled and rejected orders COUNT: the offer is for somebody who
+	// has never ordered before, and placing an order then cancelling it is not
+	// the same as never having ordered.
+	HasEverOrdered(ctx context.Context, userID id.ID) (bool, error)
+}
+
+// ---------------------------------------------------------------------------
 // Consumed by: ordering. Implemented by: promotion.
 // ---------------------------------------------------------------------------
 
 type DiscountRequest struct {
-	UserID       id.ID
-	KitchenID    id.ID
-	CouponCode   string
-	Subtotal     money.Amount
-	ItemIDs      []id.ID
+	UserID     id.ID
+	KitchenID  id.ID
+	CouponCode string
+	Subtotal   money.Amount
+	ItemIDs    []id.ID
+	/*
+	  IsFirstOrder is resolved by promotion itself now, NOT supplied by the caller.
+
+	  It was an input, and no caller ever set it — so it defaulted to false and
+	  every first-order-only coupon was rejected for everybody, permanently. A
+	  field that must be populated for correctness, in a struct where forgetting it
+	  is silent and looks like a normal rejection, is the wrong shape.
+
+	  Kept only so a caller that genuinely knows can still assert it; promotion
+	  overrides false by asking CustomerHistory.
+	*/
 	IsFirstOrder bool
 }
 

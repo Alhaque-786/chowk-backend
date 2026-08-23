@@ -23,6 +23,10 @@ type Deps struct {
 	DB     *database.DB
 	Events eventbus.Publisher
 	Clock  clock.Clock
+	// History answers "has this customer ordered before", for first-order-only
+	// coupons. Implemented by ordering — promotion owns the RULE and cannot see
+	// orders, ordering owns orders and not the rule, so the answer crosses a seam.
+	History contracts.CustomerHistory
 }
 
 type Module struct {
@@ -39,7 +43,7 @@ func New(deps Deps) *Module {
 	coupons := promotionpg.NewCouponRepository(deps.DB)
 	redemptions := promotionpg.NewRedemptionRepository(deps.DB)
 
-	service := app.NewPromotionService(deps.DB, coupons, redemptions, deps.Clock)
+	service := app.NewPromotionService(deps.DB, coupons, redemptions, deps.Clock, deps.History)
 
 	return &Module{
 		deps:        deps,

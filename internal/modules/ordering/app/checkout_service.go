@@ -311,9 +311,8 @@ func (s *CheckoutService) Checkout(ctx context.Context, in CheckoutInput) (*Chec
 			if err := order.RecalculateTotals(); err != nil {
 				return err
 			}
-			if err := s.discounts.Redeem(ctx, result.CouponID, in.UserID, order.ID); err != nil {
-				return err
-			}
+			// NOTE: Redeem is NOT called here. See step 3f-bis, after the order row
+			// exists — coupon_redemptions has a foreign key to orders.
 		}
 
 		// 3d. Minimum order value, checked on the subtotal (pre-fee, post-discount
@@ -349,6 +348,19 @@ func (s *CheckoutService) Checkout(ctx context.Context, in CheckoutInput) (*Chec
 		promised := now.Add(s.estimatePrepAndDelivery(order))
 		order.PromisedAt = &promised
 
+		/*
+		  ORDERING INVARIANT for everything below.
+
+		  Anything that writes a row REFERENCING the order must run after
+		  orders.Create. Two bugs have come from ignoring that — stock reservations,
+		  then coupon redemptions — and both presented identically: a 500 with a
+		  23503 foreign-key violation, only on the path that used the feature, and
+		  invisible to any test using a mock (a mock has no foreign keys).
+
+		  So the shape of this transaction is deliberate rather than incidental:
+		  compute everything first, insert the order, then insert its dependents.
+		*/
+
 		// 3f. Persist the order, then its audit trail. Order first, because the
 		// events reference it by foreign key.
 		if err := s.orders.Create(ctx, order); err != nil {
@@ -356,6 +368,29 @@ func (s *CheckoutService) Checkout(ctx context.Context, in CheckoutInput) (*Chec
 		}
 		for _, e := range statusEvents {
 			if err := s.orders.AppendStatusEvent(ctx, e); err != nil {
+				return err
+			}
+		}
+
+		/*
+		  3f-bis. Consume the coupon — AFTER the order row exists.
+
+		  coupon_redemptions.order_id has a foreign key to orders, so redeeming
+		  before the insert fails with 23503. This ran at 3c and produced a 500 on
+		  every checkout that used a coupon.
+
+		  It was LATENT until today: first-order-only coupons could never be applied
+		  (IsFirstOrder was never resolved) and the frontend never sent a code, so no
+		  request ever reached this line. Fixing the coupon rule is what exposed it —
+		  worth remembering that making a feature work is a good way to find the
+		  bugs behind it.
+
+		  THIS IS THE SECOND INSTANCE of the same mistake. Stock reservation had it
+		  too, for the same reason, and the invariant is now stated once below so the
+		  third one is harder to write.
+		*/
+		if couponID != nil {
+			if err := s.discounts.Redeem(ctx, *couponID, in.UserID, order.ID); err != nil {
 				return err
 			}
 		}

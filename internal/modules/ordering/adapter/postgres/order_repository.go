@@ -351,6 +351,26 @@ func (r *OrderRepository) CountActiveForUser(ctx context.Context, userID id.ID) 
 	return n, nil
 }
 
+// HasEverOrdered backs the first-order-only coupon rule.
+//
+// `EXISTS` with `LIMIT 1`, not `count(*)`: the question is boolean, and Postgres
+// can stop at the first matching row instead of scanning every order the customer
+// has ever placed. On a heavy user that is the difference between one index hit
+// and hundreds.
+//
+// NO status filter, deliberately. Cancelled and rejected orders count as having
+// ordered — otherwise the offer is farmable by placing an order and cancelling it,
+// which is exactly the abuse a first-order restriction exists to prevent.
+func (r *OrderRepository) HasEverOrdered(ctx context.Context, userID id.ID) (bool, error) {
+	const q = `SELECT EXISTS (SELECT 1 FROM orders WHERE user_id = $1 LIMIT 1)`
+
+	var ordered bool
+	if err := r.db.Q(ctx).QueryRow(ctx, q, userID).Scan(&ordered); err != nil {
+		return false, apperr.Internal(fmt.Errorf("ordering: has ever ordered: %w", err))
+	}
+	return ordered, nil
+}
+
 // FindStale finds orders stuck in a status past a deadline, for the reaper.
 //
 // Its main job is releasing stock held by orders abandoned mid-payment. Without

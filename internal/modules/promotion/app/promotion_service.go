@@ -46,6 +46,10 @@ type PromotionService struct {
 	coupons     domain.CouponRepository
 	redemptions domain.RedemptionRepository
 	clock       clock.Clock
+	// history answers "has this customer ordered before", for first-order-only
+	// coupons. Nil-tolerant: Calculate fails CLOSED without it rather than
+	// granting the discount to everybody.
+	history contracts.CustomerHistory
 }
 
 func NewPromotionService(
@@ -53,8 +57,11 @@ func NewPromotionService(
 	coupons domain.CouponRepository,
 	redemptions domain.RedemptionRepository,
 	clk clock.Clock,
+	history contracts.CustomerHistory,
 ) *PromotionService {
-	return &PromotionService{db: db, coupons: coupons, redemptions: redemptions, clock: clk}
+	return &PromotionService{
+		db: db, coupons: coupons, redemptions: redemptions, clock: clk, history: history,
+	}
 }
 
 // Calculate is READ-ONLY. It answers "what would this coupon be worth" without
@@ -92,11 +99,38 @@ func (s *PromotionService) Calculate(ctx context.Context, req contracts.Discount
 		return contracts.DiscountResult{}, err
 	}
 
+	/*
+	  Resolve first-order status HERE, rather than trusting the caller.
+
+	  This was the bug: `IsFirstOrder` arrived on the request, no caller ever set
+	  it, so it was always false and EVERY first-order-only coupon was rejected for
+	  everybody — permanently, and silently, because the rejection is
+	  indistinguishable from a legitimate one.
+
+	  Asked only when the coupon actually has the restriction: for the great
+	  majority of codes this is one query that never runs. And `||` so a caller
+	  that genuinely knows can still assert it without a redundant lookup.
+	*/
+	isFirstOrder := req.IsFirstOrder
+	if coupon.FirstOrderOnly && !isFirstOrder {
+		if s.history == nil {
+			// Fail CLOSED rather than granting the discount. A missing dependency is
+			// a wiring bug, and the wrong direction to fail is the one that gives
+			// away money to everybody until somebody notices.
+			return rejected("That offer cannot be checked right now."), nil
+		}
+		ordered, err := s.history.HasEverOrdered(ctx, req.UserID)
+		if err != nil {
+			return contracts.DiscountResult{}, err
+		}
+		isFirstOrder = !ordered
+	}
+
 	eligibility := domain.Eligibility{
 		Now:          s.clock.Now(),
 		KitchenID:    req.KitchenID,
 		Subtotal:     req.Subtotal,
-		IsFirstOrder: req.IsFirstOrder,
+		IsFirstOrder: isFirstOrder,
 	}
 	if err := coupon.CheckEligibility(eligibility); err != nil {
 		// The domain's rejection messages are written for customers, so they are

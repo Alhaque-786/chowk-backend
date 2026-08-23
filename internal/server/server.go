@@ -36,6 +36,7 @@ import (
 	"github.com/zevoxa/chowk-backend/internal/platform/token"
 	"github.com/zevoxa/chowk-backend/internal/platform/tracing"
 	"github.com/zevoxa/chowk-backend/internal/shared/clock"
+	"github.com/zevoxa/chowk-backend/internal/shared/id"
 )
 
 // Server owns the HTTP listener and every long-lived dependency.
@@ -140,8 +141,27 @@ func New(ctx context.Context, cfg *config.Config, log *slog.Logger) (*Server, er
 		Users: srv.identity.UserDirectory(),
 	})
 
+	/*
+	  A GENUINE CYCLE between two modules, resolved by deferring the lookup.
+
+	  ordering needs promotion's DiscountCalculator, and promotion needs ordering's
+	  CustomerHistory for the first-order-only coupon rule. Neither can be
+	  constructed second, so construction order cannot resolve it.
+
+	  The fix is that promotion does not need the dependency at CONSTRUCTION time —
+	  only when a request arrives, by which point both modules exist. `lazyHistory`
+	  closes over srv and resolves on call.
+
+	  Deliberately not the two alternatives. Setter injection after both are built
+	  leaves a window where the field is nil and nothing enforces that it is filled.
+	  Merging the modules to remove the cycle would delete the seam this
+	  architecture exists to keep — and the cycle is between two RULES that
+	  genuinely belong to different owners: promotion owns "first order only",
+	  ordering owns what an order is.
+	*/
 	srv.promotion = promotion.New(promotion.Deps{
 		Config: cfg, DB: db, Events: outbox, Clock: clk,
+		History: lazyHistory{srv: srv},
 	})
 
 	// Payment before ordering: ordering depends on its PaymentInitiator.
@@ -477,6 +497,17 @@ func (s *Server) collectOutboxMetrics(ctx context.Context) {
 	if deadLetter > 0 {
 		s.log.Error("outbox has dead-lettered events requiring manual review", "count", deadLetter)
 	}
+}
+
+// lazyHistory defers resolving ordering's CustomerHistory until a call arrives.
+//
+// See the cycle note at the promotion construction above. It reaches through srv
+// on every call rather than caching the resolved value, which costs one pointer
+// hop and removes any question of when it was captured.
+type lazyHistory struct{ srv *Server }
+
+func (l lazyHistory) HasEverOrdered(ctx context.Context, userID id.ID) (bool, error) {
+	return l.srv.ordering.CustomerHistory().HasEverOrdered(ctx, userID)
 }
 
 // Handler exposes the fully-wired HTTP handler.

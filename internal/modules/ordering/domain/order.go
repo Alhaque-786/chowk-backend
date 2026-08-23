@@ -382,6 +382,15 @@ type OrderRepository interface {
 	ListStatusEvents(ctx context.Context, orderID id.ID) ([]StatusEvent, error)
 	// CountActiveForUser backs the "you have too many open orders" fraud check.
 	CountActiveForUser(ctx context.Context, userID id.ID) (int, error)
+
+	// HasEverOrdered backs the first-order-only coupon rule.
+	//
+	// EXISTS separately from CountActiveForUser because the questions differ: that
+	// one asks "are they mid-order right now", this one asks "have they ever
+	// ordered". Cancelled and rejected orders count here — placing an order and
+	// cancelling it is not the same as never having ordered, and treating it as
+	// such would make the offer farmable by cancelling.
+	HasEverOrdered(ctx context.Context, userID id.ID) (bool, error)
 	// FindStale finds orders stuck in a status past a deadline, so the reaper
 	// worker can release their stock and abandon them.
 	FindStale(ctx context.Context, status Status, olderThan time.Time, limit int) ([]*Order, error)
