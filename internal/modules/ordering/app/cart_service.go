@@ -115,7 +115,20 @@ type CartPreview struct {
 	Tax       money.Amount
 	Total     money.Amount
 	// Unavailable names items the customer must remove before checking out.
-	Unavailable  []string
+	Unavailable []string
+	/*
+	  KitchenName exists so the UI can NAME the kitchen a cart belongs to.
+
+	  The case that needs it: adding a dish from a second kitchen is refused,
+	  because a cart belongs to one kitchen. "Your cart has items from another
+	  kitchen" makes the customer go and look; "Replace your Khansama order with
+	  Tunday Kababi?" is a decision they can make on the spot.
+
+	  Empty for an empty cart, and empty rather than an error if the lookup fails —
+	  a missing name degrades the wording, and failing the whole cart read over it
+	  would be a far worse trade.
+	*/
+	KitchenName  string
 	KitchenOpen  bool
 	ClosedReason string
 	MeetsMinimum bool
@@ -165,6 +178,12 @@ func (s *CartService) Preview(ctx context.Context, userID id.ID) (*CartPreview, 
 	}
 	preview.KitchenOpen = open
 	preview.ClosedReason = reason
+
+	// Best-effort: the name only improves the wording of a message, so a failure
+	// here must not fail the cart. Same treatment the order confirmation gives it.
+	if name, nameErr := s.kitchens.Name(ctx, cart.KitchenID); nameErr == nil {
+		preview.KitchenName = name
+	}
 
 	quoted, err := s.prices.QuotePrices(ctx, contracts.PriceQuoteRequest{
 		KitchenID:   cart.KitchenID,

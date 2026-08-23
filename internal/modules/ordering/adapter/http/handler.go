@@ -69,7 +69,10 @@ type cartLineResponse struct {
 }
 
 type cartResponse struct {
-	KitchenID      string             `json:"kitchen_id,omitempty"`
+	KitchenID string `json:"kitchen_id,omitempty"`
+	// So a "replace your cart?" prompt can name the kitchen instead of saying
+	// "another kitchen" and making the customer go and check.
+	KitchenName    string             `json:"kitchen_name,omitempty"`
 	Lines          []cartLineResponse `json:"lines"`
 	ItemCount      int32              `json:"item_count"`
 	SubtotalMinor  int64              `json:"subtotal_minor"`
@@ -94,6 +97,7 @@ func toCartResponse(p *app.CartPreview) cartResponse {
 		TaxMinor:       p.Tax.Minor(),
 		TotalMinor:     p.Total.Minor(),
 		Unavailable:    p.Unavailable,
+		KitchenName:    p.KitchenName,
 		KitchenOpen:    p.KitchenOpen,
 		ClosedReason:   p.ClosedReason,
 	}
