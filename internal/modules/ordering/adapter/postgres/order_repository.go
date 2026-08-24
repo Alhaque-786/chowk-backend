@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/jackc/pgx/v5"
 	"strings"
 	"time"
 
@@ -83,18 +84,58 @@ func (r *OrderRepository) Create(ctx context.Context, o *domain.Order) error {
 }
 
 func (r *OrderRepository) insertLines(ctx context.Context, o *domain.Order) error {
+	if len(o.Lines) == 0 {
+		return nil
+	}
+
+	/*
+		ONE STATEMENT FOR EVERY LINE, not one per line.
+
+		This is on the checkout path, inside the SERIALIZABLE transaction, so each
+		round trip saved is a round trip the transaction is not holding its locks
+		for. A five-line order was five round trips; against a database in
+		ap-south-1 measured at 29.7ms each that was ~150ms of pure waiting with the
+		order row already locked.
+
+		`unnest` rather than a multi-row VALUES list, for a reason that only shows up
+		later: a VALUES list has a different placeholder count per line count, so the
+		SQL TEXT changes with the size of the order. pgx caches prepared statements by
+		text, so two-line and three-line orders would each prepare and cache their own
+		statement, forever. Arrays keep the text constant and one plan serves every
+		order size.
+	*/
 	const q = `
 		INSERT INTO order_lines (
 			id, order_id, menu_item_id, name, quantity,
 			unit_price_minor, line_total_minor, tax_bps, tax_minor, modifiers, note
-		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`
+		)
+		SELECT
+			u.id, $2::uuid, u.menu_item_id, u.name, u.quantity,
+			u.unit_price_minor, u.line_total_minor, u.tax_bps, u.tax_minor, u.modifiers, u.note
+		FROM unnest(
+			$1::uuid[], $3::uuid[], $4::text[], $5::int[],
+			$6::bigint[], $7::bigint[], $8::int[], $9::bigint[], $10::jsonb[], $11::text[]
+		) AS u(id, menu_item_id, name, quantity,
+			unit_price_minor, line_total_minor, tax_bps, tax_minor, modifiers, note)`
+
+	n := len(o.Lines)
+	ids := make([]string, n)
+	itemIDs := make([]string, n)
+	names := make([]string, n)
+	quantities := make([]int32, n)
+	unitPrices := make([]int64, n)
+	lineTotals := make([]int64, n)
+	taxBps := make([]int32, n)
+	taxMinors := make([]int64, n)
+	modifiers := make([][]byte, n)
+	notes := make([]string, n)
 
 	for i := range o.Lines {
 		l := &o.Lines[i]
 
-		// Modifiers are denormalised as JSONB: they are never queried
-		// independently of their line, and a child table would add a join to
-		// every order read for no benefit.
+		// Modifiers are denormalised as JSONB: they are never queried independently
+		// of their line, and a child table would add a join to every order read for
+		// no benefit.
 		mods := l.Modifiers
 		if mods == nil {
 			mods = []domain.LineModifier{}
@@ -104,13 +145,31 @@ func (r *OrderRepository) insertLines(ctx context.Context, o *domain.Order) erro
 			return apperr.Internal(fmt.Errorf("ordering: marshal modifiers: %w", err))
 		}
 
-		if _, err := r.db.Q(ctx).Exec(ctx, q,
-			l.ID, o.ID, l.MenuItemID, l.Name, l.Quantity,
-			l.UnitPrice.Minor(), l.LineTotal.Minor(), l.TaxBps, l.TaxAmount.Minor(),
-			encoded, l.Note,
-		); err != nil {
-			return apperr.Internal(fmt.Errorf("ordering: insert order line: %w", err))
-		}
+		ids[i] = l.ID.String()
+		itemIDs[i] = l.MenuItemID.String()
+		names[i] = l.Name
+		quantities[i] = int32(l.Quantity)
+		unitPrices[i] = l.UnitPrice.Minor()
+		lineTotals[i] = l.LineTotal.Minor()
+		taxBps[i] = int32(l.TaxBps)
+		taxMinors[i] = l.TaxAmount.Minor()
+		modifiers[i] = encoded
+		notes[i] = l.Note
+	}
+
+	tag, err := r.db.Q(ctx).Exec(ctx, q,
+		ids, o.ID, itemIDs, names, quantities,
+		unitPrices, lineTotals, taxBps, taxMinors, modifiers, notes,
+	)
+	if err != nil {
+		return apperr.Internal(fmt.Errorf("ordering: insert %d order line(s): %w", n, err))
+	}
+	// A batched insert that silently writes fewer rows than it was given would
+	// produce an order whose lines do not sum to its total. The loop version could
+	// not do this; the batched version can, so it is checked.
+	if tag.RowsAffected() != int64(n) {
+		return apperr.Internal(fmt.Errorf(
+			"ordering: inserted %d order lines, expected %d", tag.RowsAffected(), n))
 	}
 	return nil
 }
@@ -145,7 +204,7 @@ func (r *OrderRepository) Update(ctx context.Context, o *domain.Order) error {
 
 func (r *OrderRepository) FindByID(ctx context.Context, orderID id.ID) (*domain.Order, error) {
 	q := `SELECT ` + orderColumns + ` FROM orders WHERE id = $1`
-	return r.findOne(ctx, q, orderID)
+	return r.findOnePipelined(ctx, q, orderID)
 }
 
 func (r *OrderRepository) FindByNumber(ctx context.Context, number string) (*domain.Order, error) {
@@ -160,7 +219,54 @@ func (r *OrderRepository) FindByNumber(ctx context.Context, number string) (*dom
 // the order ends up in a state nobody chose.
 func (r *OrderRepository) FindByIDForUpdate(ctx context.Context, orderID id.ID) (*domain.Order, error) {
 	q := `SELECT ` + orderColumns + ` FROM orders WHERE id = $1 FOR UPDATE`
-	return r.findOne(ctx, q, orderID)
+	return r.findOnePipelined(ctx, q, orderID)
+}
+
+/*
+findOnePipelined fetches an order AND its lines in a single network round trip.
+
+`findOne` below does the same work in two: read the order, then read its lines. The
+second query only needs the order id — which the caller already had — so the two
+are genuinely independent and can be pipelined. pgx sends both statements
+back to back and reads both responses afterwards.
+
+WHY THIS ONE AND NOT EVERYTHING. Pipelining requires statements that do not depend
+on each other's results, and almost nothing in this codebase qualifies: checkout
+reads, decides, then writes, and the idempotency Claim inspects the outcome of its
+own INSERT before deciding what to do next. `FindByNumber` is the instructive case
+— it looks identical to this, and it CANNOT be pipelined, because the lines query
+needs the order id that the first query returns. Same shape, opposite answer.
+
+Worth ~30ms per order view against a database in another city, ~1ms same-region.
+The order-detail endpoint is polled while somebody waits for their food, so it is
+one of the more frequently hit reads in the system.
+*/
+func (r *OrderRepository) findOnePipelined(ctx context.Context, q string, orderID id.ID) (*domain.Order, error) {
+	batch := &pgx.Batch{}
+	batch.Queue(q, orderID)
+	batch.Queue(loadLinesQuery, []id.ID{orderID})
+
+	results := r.db.Q(ctx).SendBatch(ctx, batch)
+	// Closed exactly once. Leaving a BatchResults open returns its connection to the
+	// pool mid-conversation, and the next borrower reads someone else's responses.
+	defer results.Close()
+
+	order, err := scanOrder(results.QueryRow())
+	if err != nil {
+		if database.IsNotFound(err) {
+			return nil, apperr.NotFound("ORDER_NOT_FOUND", "That order could not be found.")
+		}
+		return nil, apperr.Internal(fmt.Errorf("ordering: find order: %w", err))
+	}
+
+	rows, err := results.Query()
+	if err != nil {
+		return nil, apperr.Internal(fmt.Errorf("ordering: load order lines: %w", err))
+	}
+	if err := scanLinesInto(rows, order); err != nil {
+		return nil, err
+	}
+	return order, nil
 }
 
 func (r *OrderRepository) findOne(ctx context.Context, q string, args ...any) (*domain.Order, error) {
@@ -177,29 +283,44 @@ func (r *OrderRepository) findOne(ctx context.Context, q string, args ...any) (*
 	return order, nil
 }
 
+// loadLinesQuery is shared by loadLines and findOnePipelined. One definition, so a
+// column added to order_lines cannot be picked up by one path and missed by the
+// other — which would be a scan error in whichever path the tests exercise less.
+const loadLinesQuery = `
+		SELECT order_id, id, menu_item_id, name, quantity,
+		       unit_price_minor, line_total_minor, tax_bps, tax_minor, modifiers, note
+		FROM order_lines WHERE order_id = ANY($1)`
+
 func (r *OrderRepository) loadLines(ctx context.Context, orders ...*domain.Order) error {
 	if len(orders) == 0 {
 		return nil
 	}
 
 	ids := make([]id.ID, len(orders))
-	byID := make(map[id.ID]*domain.Order, len(orders))
 	for i, o := range orders {
 		ids[i] = o.ID
-		byID[o.ID] = o
 	}
 
-	// One query for every order's lines, not one per order.
-	const q = `
-		SELECT order_id, id, menu_item_id, name, quantity,
-		       unit_price_minor, line_total_minor, tax_bps, tax_minor, modifiers, note
-		FROM order_lines WHERE order_id = ANY($1)`
-
-	rows, err := r.db.Q(ctx).Query(ctx, q, ids)
+	rows, err := r.db.Q(ctx).Query(ctx, loadLinesQuery, ids)
 	if err != nil {
 		return apperr.Internal(fmt.Errorf("ordering: load order lines: %w", err))
 	}
+	return scanLinesInto(rows, orders...)
+}
+
+// scanLinesInto reads order_lines rows and attaches each to its order.
+//
+// Shared by loadLines and findOnePipelined so the two cannot drift: the money
+// conversions and the modifiers JSON decode are easy to get subtly different in a
+// second copy, and the difference would only show on whichever path the tests
+// happen to exercise less.
+func scanLinesInto(rows pgx.Rows, orders ...*domain.Order) error {
 	defer rows.Close()
+
+	byID := make(map[id.ID]*domain.Order, len(orders))
+	for _, o := range orders {
+		byID[o.ID] = o
+	}
 
 	for rows.Next() {
 		var (

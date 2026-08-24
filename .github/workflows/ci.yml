@@ -79,7 +79,7 @@ jobs:
     # the constraint fires, or whether the index is used.
     services:
       postgres:
-        image: postgres:16.4-alpine
+        image: postgres:17.6-alpine
         env:
           POSTGRES_USER: cloudkitchen
           POSTGRES_PASSWORD: localdev

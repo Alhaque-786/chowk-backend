@@ -36,21 +36,67 @@ func (o *Outbox) Publish(ctx context.Context, events ...Event) error {
 		return nil
 	}
 
+	/*
+		ONE STATEMENT FOR ALL EVENTS, not one per event.
+
+		This used to loop and Exec per event, which is one network round trip each.
+		Measured against the database in ap-south-1 from a laptop: 29.7ms per round
+		trip, so a checkout publishing four events spent ~120ms here, inside the
+		SERIALIZABLE transaction, holding its locks the whole time. Same-region that
+		becomes ~2ms, which is why this was invisible locally: at 0.16ms per round
+		trip the loop costs nothing measurable.
+
+		WHY unnest AND NOT MULTI-ROW VALUES. Both collapse to one round trip, but a
+		VALUES list has a different number of placeholders for every batch size, so
+		the SQL TEXT changes with the event count -- and pgx caches prepared
+		statements by SQL text. Publishing 2 events then 3 then 5 would prepare three
+		separate statements and keep doing so forever. `unnest` takes a fixed set of
+		array parameters, so the text is constant and one cached plan serves every
+		batch size.
+
+		It also sidesteps the 65535-parameter protocol limit, which a VALUES list with
+		seven columns would hit at ~9300 events.
+
+		WHY NOT CopyFrom, which is faster still: it cannot participate in the
+		statement cache, it bypasses rules and some triggers, and these batches are a
+		handful of rows. The complexity is not repaid.
+	*/
 	const q = `
 		INSERT INTO outbox_events (id, event_name, aggregate_id, payload, trace_id, occurred_at, status)
-		VALUES ($1, $2, $3, $4, $5, $6, 'pending')`
+		SELECT
+			u.id, u.event_name, u.aggregate_id, u.payload, u.trace_id, u.occurred_at, 'pending'
+		FROM unnest(
+			$1::uuid[], $2::text[], $3::uuid[], $4::jsonb[], $5::text[], $6::timestamptz[]
+		) AS u(id, event_name, aggregate_id, payload, trace_id, occurred_at)`
 
-	q2 := o.db.Q(ctx)
-	for _, e := range events {
+	n := len(events)
+	ids := make([]string, n)
+	names := make([]string, n)
+	aggregates := make([]string, n)
+	payloads := make([][]byte, n)
+	traces := make([]string, n)
+	occurred := make([]time.Time, n)
+
+	for i, e := range events {
 		if e.ID == id.Nil {
 			e.ID = id.New()
 		}
 		if e.OccurredAt.IsZero() {
 			e.OccurredAt = time.Now().UTC()
 		}
-		if _, err := q2.Exec(ctx, q, e.ID, string(e.Name), e.AggregateID, []byte(e.Payload), e.TraceID, e.OccurredAt); err != nil {
-			return fmt.Errorf("eventbus: enqueue %s: %w", e.Name, err)
-		}
+		// UUIDs as text with an explicit ::uuid[] cast rather than relying on a pgx
+		// array codec for the uuid type. Postgres does the parsing, and it works
+		// whatever uuid library the id package wraps.
+		ids[i] = e.ID.String()
+		names[i] = string(e.Name)
+		aggregates[i] = e.AggregateID.String()
+		payloads[i] = []byte(e.Payload)
+		traces[i] = e.TraceID
+		occurred[i] = e.OccurredAt
+	}
+
+	if _, err := o.db.Q(ctx).Exec(ctx, q, ids, names, aggregates, payloads, traces, occurred); err != nil {
+		return fmt.Errorf("eventbus: enqueue %d event(s): %w", n, err)
 	}
 	return nil
 }

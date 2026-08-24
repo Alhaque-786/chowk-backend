@@ -50,9 +50,45 @@ func setup(t *testing.T, in app.CreateCouponInput, participants int) *fixture {
 	db := testutil.DB(t)
 	ctx := context.Background()
 
+	/*
+		THE FIXTURE CREATES ITS OWN KITCHEN.
+
+		This used to hardcode the seeder's Khansama id with the comment "seeded
+		Khansama", so twelve tests in this file silently depended on somebody having
+		run `cmd/seed` against the database first. On a freshly migrated database they
+		fail with a foreign key violation on orders_kitchen_id_fkey, which reads as a
+		schema problem rather than a missing fixture.
+
+		CI applies migrations and does NOT seed, so these would have been red on the
+		very first CI run — and nobody had discovered it because the repository has
+		no remote and CI has never executed. Found by running the suite against a
+		clean Postgres 17 container while checking a version bump.
+
+		A test that needs a row should create that row. Seed data is DEVELOPMENT
+		fixture data: it exists so a human can click around, and it is free to change
+		shape without anybody thinking about this file.
+	*/
 	f := &fixture{
 		db:        db,
-		kitchenID: id.MustParse("00000000-0000-0000-0000-0000000000a1"), // seeded Khansama
+		kitchenID: id.New(),
+	}
+	// A kitchen belongs to a merchant (kitchens.merchant_id is NOT NULL since the
+	// marketplace migration), so the fixture has to build both.
+	merchantID := id.New()
+	suffix := id.HumanCode(8)
+	if _, err := db.Q(ctx).Exec(ctx, `
+		INSERT INTO merchants (id, legal_name, display_name, slug, contact_phone)
+		VALUES ($1, $2, $3, $4, '+910000000000')`,
+		merchantID, "Promo Test Foods Pvt Ltd", "Promo Test Foods", "promo-merchant-"+suffix,
+	); err != nil {
+		t.Fatalf("create test merchant: %v", err)
+	}
+	if _, err := db.Q(ctx).Exec(ctx, `
+		INSERT INTO kitchens (id, merchant_id, name, slug, latitude, longitude)
+		VALUES ($1, $2, $3, $4, 26.85, 80.947)`,
+		f.kitchenID, merchantID, "Promotion Test Kitchen", "promo-kitchen-"+suffix,
+	); err != nil {
+		t.Fatalf("create test kitchen: %v", err)
 	}
 	f.coupons = promotionpg.NewCouponRepository(db)
 	redemptions := promotionpg.NewRedemptionRepository(db)

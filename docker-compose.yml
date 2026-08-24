@@ -9,7 +9,7 @@ services:
     # Pinned to a minor version, not `16` or `latest`. An unpinned image means a
     # `docker compose pull` can silently change the database under you, and
     # someone's machine ends up on a different version than production.
-    image: postgres:16.4-alpine
+    image: postgres:17.6-alpine
     container_name: ck-postgres
     restart: unless-stopped
     environment:

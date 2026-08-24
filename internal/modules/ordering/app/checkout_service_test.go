@@ -618,3 +618,100 @@ func contains(haystack, needle string) bool {
 	}
 	return false
 }
+
+/*
+TestCheckoutPersistsEveryLineCorrectlyPaired covers the batched insert.
+
+insertLines was a loop of one Exec per line and is now a single `unnest` statement,
+which trades N network round trips for one — worth ~150ms on a five-line order
+against a database in another city, inside the SERIALIZABLE transaction, while it
+holds its locks.
+
+The existing coverage only ever checked out ONE line, and one line cannot detect
+the failure mode this rewrite introduces. `unnest` zips its arrays positionally, so
+building them in slightly different orders pairs the wrong quantity with the wrong
+item — and every individual value is still valid, every constraint still passes,
+and the order total still balances against the corrupted lines because the totals
+were computed before the insert. It is only wrong when a human reads the order.
+
+Two items with DIFFERENT quantities, prices and tax rates, so a swap between any
+pair of arrays changes an assertion.
+*/
+func TestCheckoutPersistsEveryLineCorrectlyPaired(t *testing.T) {
+	h := newHarness(t)
+	// Deliberately asymmetric: biryani x3 at 289 with 500bps, water x1 at 20 with
+	// 1800bps. No two arrays share a value pattern.
+	h.addToCart(t, h.biryani, 3)
+	h.addToCart(t, h.water, 1)
+
+	result, err := h.checkoutCOD(t)
+	if err != nil {
+		t.Fatalf("checkout: %v", err)
+	}
+	ctx := context.Background()
+
+	stored, err := h.orders.FindByID(ctx, result.Order.ID)
+	if err != nil {
+		t.Fatalf("reload order: %v", err)
+	}
+	if len(stored.Lines) != 2 {
+		t.Fatalf("%d lines persisted, want 2 — a batched insert dropping rows is the "+
+			"first thing this test is for", len(stored.Lines))
+	}
+
+	byName := map[string]domain.Line{}
+	for _, l := range stored.Lines {
+		byName[l.Name] = l
+	}
+
+	biryani, ok := byName["Test Biryani"]
+	if !ok {
+		t.Fatalf("no line named Test Biryani; got %v", byName)
+	}
+	water, ok := byName["Test Water"]
+	if !ok {
+		t.Fatalf("no line named Test Water; got %v", byName)
+	}
+
+	// Quantity paired with the right item. A quantities/prices swap survives every
+	// constraint and shows up only here.
+	if biryani.Quantity != 3 {
+		t.Errorf("biryani quantity = %d, want 3 — arrays are misaligned", biryani.Quantity)
+	}
+	if water.Quantity != 1 {
+		t.Errorf("water quantity = %d, want 1 — arrays are misaligned", water.Quantity)
+	}
+
+	// Price and tax rate paired with the right item.
+	if biryani.UnitPrice.Minor() != 28900 {
+		t.Errorf("biryani unit price = %d, want 28900", biryani.UnitPrice.Minor())
+	}
+	if water.UnitPrice.Minor() != 2000 {
+		t.Errorf("water unit price = %d, want 2000", water.UnitPrice.Minor())
+	}
+	if biryani.TaxBps != 500 {
+		t.Errorf("biryani tax = %d bps, want 500 — per-item rates must not be swapped", biryani.TaxBps)
+	}
+	if water.TaxBps != 1800 {
+		t.Errorf("water tax = %d bps, want 1800 — per-item rates must not be swapped", water.TaxBps)
+	}
+
+	// Line totals must be internally consistent, which catches a quantity paired
+	// with the wrong price even when both values are individually plausible.
+	for _, l := range stored.Lines {
+		if want := l.UnitPrice.Minor() * int64(l.Quantity); l.LineTotal.Minor() != want {
+			t.Errorf("%s: line total %d != unit %d x qty %d = %d",
+				l.Name, l.LineTotal.Minor(), l.UnitPrice.Minor(), l.Quantity, want)
+		}
+	}
+
+	// And the order's own subtotal must equal the sum of its persisted lines. This
+	// is what a customer disputing a bill would recompute.
+	var sum int64
+	for _, l := range stored.Lines {
+		sum += l.LineTotal.Minor()
+	}
+	if stored.Subtotal.Minor() != sum {
+		t.Errorf("order subtotal %d != sum of lines %d", stored.Subtotal.Minor(), sum)
+	}
+}
