@@ -104,7 +104,9 @@ func main() {
 	}
 
 	out := render(s)
-	if err := os.WriteFile("docs/ERD.md", []byte(out), 0o644); err != nil {
+	// 0644 on purpose: this file is committed and read by everyone. gosec wants
+	// 0600, which would be wrong for a generated document in a repository.
+	if err := os.WriteFile("docs/ERD.md", []byte(out), 0o644); err != nil { //nolint:gosec // committed doc, not a secret
 		fatal("write docs/ERD.md: %v", err)
 	}
 

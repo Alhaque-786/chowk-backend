@@ -61,6 +61,19 @@ func (s *Server) Run(ctx context.Context) error {
 // The ordering is what makes a deploy invisible to customers: stop accepting new
 // requests, let existing ones finish, stop the relay, then close the pools. Doing
 // it the other way round fails every request that was mid-flight.
+/*
+shutdown drains the server within the grace period.
+
+TAKES NO CONTEXT ON PURPOSE, and contextcheck's advice here would be a bug rather
+than an improvement. shutdown runs BECAUSE the parent context was cancelled — that
+is the signal to stop. Threading that context in would hand every step below an
+already-cancelled deadline, so http.Shutdown would return immediately, in-flight
+requests would be cut off mid-response, and the grace period would be decorative.
+
+A fresh context from Background with an explicit timeout is the only correct source
+of a deadline for work that must outlive the thing that triggered it.
+*/
+//nolint:contextcheck // the parent ctx is cancelled; shutdown must outlive it
 func (s *Server) shutdown() error {
 	s.log.Info("shutting down", "grace_period", s.cfg.Server.ShutdownTimeout)
 

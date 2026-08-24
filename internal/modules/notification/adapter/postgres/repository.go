@@ -349,11 +349,11 @@ type scanner interface {
 	Scan(dest ...any) error
 }
 
-func truncate(s string, max int) string {
-	if len(s) <= max {
+func truncate(s string, upper int) string {
+	if len(s) <= upper {
 		return s
 	}
-	return s[:max]
+	return s[:upper]
 }
 
 var (

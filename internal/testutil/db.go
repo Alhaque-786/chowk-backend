@@ -12,6 +12,7 @@ package testutil
 
 import (
 	"context"
+	"errors"
 	"os"
 	"testing"
 	"time"
@@ -103,7 +104,7 @@ func InRollbackTx(t *testing.T, db *database.DB, fn func(ctx context.Context) er
 		}
 		return ErrRollback
 	})
-	if err != nil && err != ErrRollback {
+	if err != nil && !errors.Is(err, ErrRollback) {
 		t.Fatalf("transaction failed: %v", err)
 	}
 }

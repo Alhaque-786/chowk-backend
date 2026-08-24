@@ -3,7 +3,6 @@ package app
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"time"
 
@@ -787,5 +786,3 @@ func statusEventName(status domain.Status) (eventbus.Name, error) {
 		return "", fmt.Errorf("ordering: no event for status %q", status)
 	}
 }
-
-var errNoEvent = errors.New("ordering: no event for status")

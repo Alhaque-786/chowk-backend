@@ -1,6 +1,7 @@
 package httpx
 
 import (
+	"errors"
 	"log/slog"
 	"net/http"
 	"runtime/debug"
@@ -111,14 +112,22 @@ func RequestLogger(log *slog.Logger) func(http.Handler) http.Handler {
 // request on that instance.
 func Recoverer(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		defer func() {
+		// nolint on the closure: contextcheck wants a ctx parameter, but a deferred
+		// recover closure cannot take one and does not need to — it closes over `r`
+		// and uses r.Context() for the logger below, which is the correct propagation.
+		defer func() { //nolint:contextcheck // closes over r; uses r.Context() for logging
 			rec := recover()
 			if rec == nil {
 				return
 			}
 			// http.ErrAbortHandler is the documented way to abandon a response;
 			// re-panic so net/http handles it as intended.
-			if rec == http.ErrAbortHandler {
+			//
+			// Asserted to error first rather than compared directly: recover() returns
+			// `any`, and a bare `==` would also silently miss a WRAPPED
+			// ErrAbortHandler, which is a real thing a middleware upstream could panic
+			// with.
+			if recErr, ok := rec.(error); ok && errors.Is(recErr, http.ErrAbortHandler) {
 				panic(rec)
 			}
 

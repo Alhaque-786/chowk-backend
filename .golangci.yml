@@ -1,67 +1,86 @@
-# golangci-lint configuration.
-#
-# The linters enabled here are the ones that catch real bugs, not style
-# preferences. gofmt already handles formatting, so nothing here argues about it.
-
 version: "2"
-
 run:
-  timeout: 5m
   tests: true
-
 linters:
   enable:
-    # --- correctness ---
-    - errcheck        # unchecked errors. The single highest-value Go linter.
-    - govet
-    - staticcheck
-    - ineffassign
-    - unused
-    - bodyclose       # unclosed HTTP response bodies leak connections
-    - rowserrcheck    # missing rows.Err() silently truncates query results
-    - sqlclosecheck
-    - nilerr          # returning nil when err is non-nil: a classic silent bug
-    - errorlint       # use errors.Is/As instead of == and type asserts
-    - contextcheck    # dropped or wrong context propagation
-    - noctx           # HTTP requests made without a context (unbounded hangs)
-
-    # --- security ---
+    - bodyclose
+    - contextcheck
+    - durationcheck
+    - errorlint
     - gosec
-
-    # --- clarity ---
+    - makezero
     - misspell
+    - nilerr
+    - noctx
+    - predeclared
+    - rowserrcheck
+    - sqlclosecheck
     - unconvert
     - wastedassign
-    - durationcheck   # multiplying two durations, always a bug
-    - makezero
-    - predeclared
-
-linters-settings:
-  errcheck:
-    # Deliberate fire-and-forget calls. Each is a considered decision documented
-    # at its call site, not an oversight.
-    exclude-functions:
-      - (net/http.ResponseWriter).Write
-      - (*database/sql.Rows).Close
-
-  gosec:
-    excludes:
-      # G404: math/rand is used ONLY for retry jitter, where predictability is
-      # harmless. Every security-sensitive random value (OTPs, tokens, lock
-      # tokens) uses crypto/rand — see shared/id and platform/password.
-      - G404
-
-  govet:
-    enable:
-      - fieldalignment  # struct padding; matters for hot-path types
-
+  settings:
+    errcheck:
+      exclude-functions:
+        - (net/http.ResponseWriter).Write
+        - (*database/sql.Rows).Close
+        # apperr's builders MUTATE THE RECEIVER and return it only so constructors
+        # can be chained. Verified in shared/apperr: WithField writes into e.Fields
+        # and returns e. Calling it as a statement is the intended usage at 53 call
+        # sites, and errcheck cannot tell a fluent builder from an error return.
+        - (*github.com/zevoxa/chowk-backend/internal/shared/apperr.Error).WithField
+        - (*github.com/zevoxa/chowk-backend/internal/shared/apperr.Error).WithCause
+    gosec:
+      excludes:
+        - G404
+    govet:
+      # fieldalignment is DELIBERATELY NOT ENABLED. It produced 147 findings — every
+      # struct whose fields are not ordered largest-first — and the fix is reordering
+      # fields for padding, which buys memory this service is nowhere near
+      # constrained by.
+      #
+      # The comment it replaces said "matters for hot-path types", which is true and
+      # is exactly what a repository-wide check cannot express. If a hot-path struct
+      # ever needs it, `go vet -vettool` on that one package answers on demand.
+      #
+      # It was also never actually enforced: the exclusion below listed
+      # `fieldalignment` under `linters`, but it is a govet CHECK rather than a
+      # linter, so the exclusion matched nothing. Both halves only surfaced when CI
+      # moved from the golangci-lint v1 binary to v2.
+      enable: []
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
+    rules:
+      # Test files legitimately ignore errors in setup and use weaker randomness.
+      # `fieldalignment` used to be listed here and matched nothing — it is a govet
+      # check, not a linter name, so it was silently inert.
+      - linters:
+          - errcheck
+          - gosec
+          # httptest.NewRequest is the correct call in a test; noctx exists to catch
+          # PRODUCTION HTTP clients built without a context, where the result is an
+          # unbounded hang. All 15 findings were httptest in _test.go files.
+          - noctx
+          # Test helpers shadowing min/max/cap are local and obvious.
+          - predeclared
+          # Tests compare against sentinel errors directly on purpose: asserting the
+          # exact value is stronger than errors.Is when the test OWNS the error.
+          - errorlint
+        path: _test\.go
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
 issues:
-  exclude-rules:
-    # Test files legitimately ignore errors in setup and use weaker randomness.
-    - path: _test\.go
-      linters:
-        - errcheck
-        - gosec
-        - fieldalignment
   max-issues-per-linter: 0
   max-same-issues: 0
+formatters:
+  exclusions:
+    generated: lax
+    paths:
+      - third_party$
+      - builtin$
+      - examples$

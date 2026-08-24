@@ -65,9 +65,24 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
           cache: true
-      - uses: golangci/golangci-lint-action@v6
+      # ACTION v8 AND A PINNED v2 VERSION, and both halves matter.
+      #
+      # This was `golangci-lint-action@v6` with `version: latest`, and it failed on
+      # the first CI run this repository ever had:
+      #
+      #   can't load config: the Go language version (go1.24) used to build
+      #   golangci-lint is lower than the targeted Go version (1.26.6)
+      #
+      # `latest` on action v6 resolves within the golangci-lint v1 line, and v1.64.8
+      # is built with Go 1.24. go.mod targets 1.26.6, so the linter refuses to run at
+      # all — it does not lint badly, it exits 3 without checking anything.
+      #
+      # PINNED rather than `latest`, because "latest" is how a green pipeline turns
+      # red on a morning when nothing was pushed. Bumping this is a deliberate commit
+      # that can be reverted.
+      - uses: golangci/golangci-lint-action@v8
         with:
-          version: latest
+          version: v2.13.1
           args: --timeout=5m
 
   test:

@@ -152,7 +152,7 @@ func (k *Kitchen) CanAcceptOrder(now time.Time) (bool, ClosedReason) {
 // them against a UTC instant would shift every kitchen's hours by 5.5 hours.
 func (k *Kitchen) IsOpenAt(now time.Time) bool {
 	local := now.In(clock.IST)
-	day := int16(local.Weekday())
+	day := int16(local.Weekday()) //nolint:gosec // Weekday is 0..6
 	sinceMidnight := time.Duration(local.Hour())*time.Hour +
 		time.Duration(local.Minute())*time.Minute
 

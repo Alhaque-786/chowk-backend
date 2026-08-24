@@ -1,0 +1,65 @@
+# golangci-lint configuration.
+#
+# The linters enabled here are the ones that catch real bugs, not style
+# preferences. gofmt already handles formatting, so nothing here argues about it.
+
+run:
+  timeout: 5m
+  tests: true
+
+linters:
+  enable:
+    # --- correctness ---
+    - errcheck        # unchecked errors. The single highest-value Go linter.
+    - govet
+    - staticcheck
+    - ineffassign
+    - unused
+    - bodyclose       # unclosed HTTP response bodies leak connections
+    - rowserrcheck    # missing rows.Err() silently truncates query results
+    - sqlclosecheck
+    - nilerr          # returning nil when err is non-nil: a classic silent bug
+    - errorlint       # use errors.Is/As instead of == and type asserts
+    - contextcheck    # dropped or wrong context propagation
+    - noctx           # HTTP requests made without a context (unbounded hangs)
+
+    # --- security ---
+    - gosec
+
+    # --- clarity ---
+    - misspell
+    - unconvert
+    - wastedassign
+    - durationcheck   # multiplying two durations, always a bug
+    - makezero
+    - predeclared
+
+linters-settings:
+  errcheck:
+    # Deliberate fire-and-forget calls. Each is a considered decision documented
+    # at its call site, not an oversight.
+    exclude-functions:
+      - (net/http.ResponseWriter).Write
+      - (*database/sql.Rows).Close
+
+  gosec:
+    excludes:
+      # G404: math/rand is used ONLY for retry jitter, where predictability is
+      # harmless. Every security-sensitive random value (OTPs, tokens, lock
+      # tokens) uses crypto/rand — see shared/id and platform/password.
+      - G404
+
+  govet:
+    enable:
+      - fieldalignment  # struct padding; matters for hot-path types
+
+issues:
+  exclude-rules:
+    # Test files legitimately ignore errors in setup and use weaker randomness.
+    - path: _test\.go
+      linters:
+        - errcheck
+        - gosec
+        - fieldalignment
+  max-issues-per-linter: 0
+  max-same-issues: 0

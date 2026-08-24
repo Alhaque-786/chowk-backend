@@ -81,7 +81,7 @@ func Parse(s string, c Currency) (Amount, error) {
 		return Amount{}, fmt.Errorf("money: parse %q: no digits", s)
 	}
 	// Pad or truncate the fraction to exactly the currency's precision.
-	if int32(len(frac)) > exp {
+	if int32(len(frac)) > exp { //nolint:gosec // frac is a parsed decimal fraction, never near int32
 		frac = frac[:exp]
 	}
 	frac += strings.Repeat("0", int(exp)-len(frac))

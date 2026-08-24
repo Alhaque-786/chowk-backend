@@ -222,15 +222,16 @@ func seedDevMenus(
 				Price: money.FromRupees(d.rupees),
 				// 5% GST on prepared food, matching the Khansama items. Drinks
 				// would be 18%, but none of these fixtures is a packaged beverage.
-				TaxBps:        500,
-				PackagingFee:  money.FromRupees(5),
-				FoodType:      d.foodType,
-				SpiceLevel:    d.spice,
-				Allergens:     []string{},
-				Serves:        1,
-				IsAvailable:   true,
-				PrepMinutes:   d.prepMins,
-				DisplayOrder:  order*100 + int32(len(existing)),
+				TaxBps:       500,
+				PackagingFee: money.FromRupees(5),
+				FoodType:     d.foodType,
+				SpiceLevel:   d.spice,
+				Allergens:    []string{},
+				Serves:       1,
+				IsAvailable:  true,
+				PrepMinutes:  d.prepMins,
+				// A seed menu is tens of items; len() cannot approach int32.
+				DisplayOrder:  order*100 + int32(len(existing)), //nolint:gosec // bounded by the seed fixture
 				IsRecommended: d.popular,
 				Version:       1,
 				CreatedAt:     now,

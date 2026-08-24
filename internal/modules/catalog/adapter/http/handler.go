@@ -232,7 +232,11 @@ func (h *Handler) FindNearby(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	radius := int32(httpx.QueryInt(r, "radius_m", 10000))
+	// CLAMPED, not cast. radius_m comes from the query string, so a caller can send
+	// 4294967296 and a bare int32() would truncate it to 0 — a "search within 0
+	// metres" that returns nothing and looks like missing data. 50km covers any
+	// plausible delivery radius.
+	radius := int32(min(max(httpx.QueryInt(r, "radius_m", 10000), 1), 50_000))
 	limit := httpx.QueryInt(r, "limit", 20)
 
 	results, err := h.catalog.FindNearby(r.Context(), lat, lng, radius, limit)

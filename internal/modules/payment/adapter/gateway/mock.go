@@ -39,7 +39,7 @@ func NewMock(webhookSecret string) *Mock {
 		// A fixed default so local webhooks can be signed by a script without
 		// configuring anything. Never used in production: config requires a real
 		// secret there.
-		webhookSecret = "local-mock-webhook-secret"
+		webhookSecret = "local-mock-webhook-secret" //nolint:gosec // dev default; config.Load requires a real secret in production
 	}
 	return &Mock{webhookSecret: webhookSecret}
 }

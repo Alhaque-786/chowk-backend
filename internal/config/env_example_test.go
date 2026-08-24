@@ -32,7 +32,7 @@ adding a knob and forgetting to document it fails here.
 // Matches every env key read through the config helpers or os.Getenv. Kept in sync
 // with the helper set below, which is asserted separately.
 var envKeyPattern = regexp.MustCompile(
-	`(?:require|optString|optInt|optBool|optFloat|optDuration|optCSV|os\.Getenv)\("([A-Z_0-9]+)"`)
+	`(?:require|optString|optInt|optBool|optFloat|optDuration|optCSV|optPoolSize|os\.Getenv)\("([A-Z_0-9]+)"`)
 
 func keysReadByConfig(t *testing.T) []string {
 	t.Helper()
@@ -130,7 +130,16 @@ func TestEnvKeyPatternCoversEveryHelper(t *testing.T) {
 		t.Fatalf("reading config.go: %v", err)
 	}
 
-	declared := regexp.MustCompile(`(?m)^func ((?:opt|require)[A-Za-z]*)\(`).
+	/*
+		ANY function in this file that reads the environment counts, not just ones
+		named opt* or require*. The pattern used to require that prefix, and it let a
+		helper through: renaming a reader to `poolSize` made POSTGRES_MAX_CONNS look
+		undocumented to TestEnvExampleHasNoDeadKeys while this test stayed green.
+
+		Detected by BODY rather than by name — a function whose body calls os.Getenv
+		is an env reader whatever it is called.
+	*/
+	declared := regexp.MustCompile(`(?m)^func ([a-zA-Z]\w*)\(`).
 		FindAllStringSubmatch(string(src), -1)
 	if len(declared) == 0 {
 		t.Fatal("found no config helpers; the helper pattern has drifted")
@@ -138,9 +147,56 @@ func TestEnvKeyPatternCoversEveryHelper(t *testing.T) {
 
 	for _, m := range declared {
 		name := m[1]
+		// Only READERS need to be matchable: functions that take a key and return its
+		// value. Load calls all of them and takes no key, so requiring it in the
+		// pattern would be meaningless.
+		if !isEnvReader(string(src), name) {
+			continue
+		}
 		if !strings.Contains(envKeyPattern.String(), name) {
 			t.Errorf("helper %q exists in config.go but envKeyPattern does not match it; "+
 				"every key read through %s is invisible to the tests above", name, name)
 		}
 	}
+}
+
+/*
+isEnvReader reports whether fn is a per-key environment reader.
+
+Two conditions, and both are needed. Taking a `key` parameter is what makes a
+function's call sites contain the env var NAME, which is what envKeyPattern
+extracts. Reaching the environment is what makes it a reader rather than a helper
+that happens to take a key.
+
+Checked by SIGNATURE AND BODY rather than by name prefix, which is the hole this
+replaced: the pattern used to require an "opt" or "require" prefix, so renaming a reader
+to `poolSize` hid POSTGRES_MAX_CONNS from the completeness test while this test
+stayed green. Naming conventions are worth following; they are not worth depending
+on.
+*/
+func isEnvReader(src, fn string) bool {
+	start := strings.Index(src, "func "+fn+"(")
+	if start < 0 {
+		return false
+	}
+	sigEnd := strings.Index(src[start:], "{")
+	if sigEnd < 0 {
+		return false
+	}
+	signature := src[start : start+sigEnd]
+	if !strings.Contains(signature, "key string") && !strings.Contains(signature, "key,") {
+		return false
+	}
+
+	end := strings.Index(src[start:], "\n}\n")
+	if end < 0 {
+		end = len(src) - start
+	}
+	body := src[start : start+end]
+	for _, marker := range []string{"os.Getenv", "os.LookupEnv", "optInt(", "optString("} {
+		if strings.Contains(body, marker) {
+			return true
+		}
+	}
+	return false
 }

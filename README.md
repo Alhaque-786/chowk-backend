@@ -1,6 +1,6 @@
 # Chowk — Backend
 
-Go 1.26 · PostgreSQL 16 · Redis 7 · chi
+Go 1.26 · PostgreSQL 17 · Redis 7 · chi
 
 A modular-monolith API for **Chowk**, a food-ordering platform: customer
 ordering, kitchen operations, inventory, and the admin dashboard.
@@ -11,6 +11,12 @@ anywhere in the code. See [`docs/MARKETPLACE.md`](docs/MARKETPLACE.md).
 
 **Read [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) before writing code.** It
 explains why the structure is what it is; this file only tells you how to run it.
+
+**Read [`docs/HOSTING.md`](docs/HOSTING.md) before choosing where to deploy it.** It
+records the measured cost of getting the region wrong — a database one city away
+makes an indexed primary-key lookup take 30 ms instead of 0.2 ms, of which 100% is
+network — and the two connection settings that fail intermittently rather than
+loudly.
 
 ---
 
@@ -125,3 +131,15 @@ and one error handler:
 - **Event handlers must be idempotent.** Outbox delivery is at-least-once.
 - **New env var → add it to `internal/config` and `.env.example`.** Nothing
   outside `config` reads the environment.
+- **`make check` before pushing.** It runs the linter, the boundary check, the
+  soft-delete check and the tests. CI runs the same thing, so a green local run is
+  a green pipeline.
+- **`golangci-lint` is pinned, not `latest`.** v2.13.1, via
+  `golangci-lint-action@v8`. The v1 line is built with Go 1.24 and refuses to run
+  against a `go 1.26` module — it exits without linting anything, which is how the
+  first CI run on this repository failed.
+- **Probes answer three different questions.** `/health` is liveness and checks no
+  dependencies, because failing it makes an orchestrator restart the process and
+  restarting your API does not fix someone else's database. `/ready` is Postgres
+  and Redis. `/status` is the operator view — breaker states, outbox backlog — and
+  influences no routing. See `internal/server/probes.go`.

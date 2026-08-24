@@ -145,8 +145,8 @@ func Load() (*Config, error) {
 		},
 		Postgres: PostgresConfig{
 			DSN:             require("POSTGRES_DSN"),
-			MaxConns:        int32(optInt("POSTGRES_MAX_CONNS", 25)),
-			MinConns:        int32(optInt("POSTGRES_MIN_CONNS", 2)),
+			MaxConns:        optPoolSize("POSTGRES_MAX_CONNS", 25),
+			MinConns:        optPoolSize("POSTGRES_MIN_CONNS", 2),
 			MaxConnLifetime: optDuration("POSTGRES_MAX_CONN_LIFETIME", time.Hour),
 			MaxConnIdleTime: optDuration("POSTGRES_MAX_CONN_IDLE_TIME", 30*time.Minute),
 		},
@@ -190,6 +190,12 @@ func Load() (*Config, error) {
 		},
 	}
 
+	if cfg.Postgres.MinConns > cfg.Postgres.MaxConns {
+		problems = append(problems, fmt.Sprintf(
+			"POSTGRES_MIN_CONNS (%d) exceeds POSTGRES_MAX_CONNS (%d)",
+			cfg.Postgres.MinConns, cfg.Postgres.MaxConns))
+	}
+
 	// A sample ratio outside [0,1] silently disables or over-samples tracing, so
 	// clamp rather than trusting the input.
 	if cfg.Observ.TracingSampleRatio < 0 {
@@ -223,6 +229,31 @@ func Load() (*Config, error) {
 
 func (c *Config) IsProduction() bool { return c.Env == EnvProduction }
 func (c *Config) IsLocal() bool      { return c.Env == EnvLocal }
+
+/*
+poolSize reads a connection-pool size, refusing values that cannot be one.
+
+pgxpool takes int32, and this used to be a bare `int32(optInt(...))`. On a 64-bit
+platform that truncates: POSTGRES_MAX_CONNS=4294967296 becomes 0, and
+POSTGRES_MAX_CONNS=2147483648 becomes NEGATIVE. Either way the app boots and then
+behaves incomprehensibly, which is the worst outcome available — a config typo
+should be a refusal at startup, not a mystery under load.
+
+Clamped rather than rejected at the top end because the real ceiling is the
+server's max_connections, which we cannot know from here. 10000 is far past any
+sane pool and still safely inside int32.
+*/
+func optPoolSize(key string, fallback int32) int32 {
+	raw := optInt(key, int(fallback))
+	switch {
+	case raw < 1:
+		return 1
+	case raw > 10000:
+		return 10000
+	default:
+		return int32(raw)
+	}
+}
 
 func optString(key, fallback string) string {
 	if v := strings.TrimSpace(os.Getenv(key)); v != "" {

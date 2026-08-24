@@ -148,10 +148,13 @@ func (r *OrderRepository) insertLines(ctx context.Context, o *domain.Order) erro
 		ids[i] = l.ID.String()
 		itemIDs[i] = l.MenuItemID.String()
 		names[i] = l.Name
-		quantities[i] = int32(l.Quantity)
+		quantities[i] = l.Quantity
 		unitPrices[i] = l.UnitPrice.Minor()
 		lineTotals[i] = l.LineTotal.Minor()
-		taxBps[i] = int32(l.TaxBps)
+		// TaxBps is int64 in the domain and int in the column. Basis points are
+		// bounded by 10000 by construction (money.ApplyBasisPoints), so this cannot
+		// overflow; gosec cannot see the bound.
+		taxBps[i] = int32(l.TaxBps) //nolint:gosec // 0..10000 by construction
 		taxMinors[i] = l.TaxAmount.Minor()
 		modifiers[i] = encoded
 		notes[i] = l.Note
