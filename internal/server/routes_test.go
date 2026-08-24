@@ -55,6 +55,11 @@ var publicRoutes = map[string]string{
 	"/health":  "liveness probe; the orchestrator has no token",
 	"/ready":   "readiness probe",
 	"/metrics": "scraped by Prometheus; restricted at the ingress, not by a token",
+	// Same posture as /metrics and the same caveat. Scraped by an agent that has
+	// no user token, so it cannot be authenticated -- which is exactly why it
+	// must not be internet-reachable. It reports breaker states and outbox
+	// backlog depths: internal topology, not customer data.
+	"/status": "operator view; scraped by an agent with no token, restricted at the ingress",
 
 	"/api/v1/auth/register":    "how you obtain a token in the first place",
 	"/api/v1/auth/login":       "how you obtain a token in the first place",

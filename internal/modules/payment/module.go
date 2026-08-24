@@ -17,6 +17,7 @@ import (
 	"github.com/zevoxa/chowk-backend/internal/modules/payment/domain"
 	"github.com/zevoxa/chowk-backend/internal/platform/database"
 	"github.com/zevoxa/chowk-backend/internal/platform/eventbus"
+	"github.com/zevoxa/chowk-backend/internal/platform/resilience"
 	"github.com/zevoxa/chowk-backend/internal/shared/clock"
 )
 
@@ -28,6 +29,10 @@ type Deps struct {
 
 	// Users resolves customer contact details for the gateway.
 	Users contracts.UserDirectory
+
+	// Guards collects the module's circuit breakers so /status can report them.
+	// Optional: nil means the breakers work but are unobservable.
+	Guards *resilience.Registry
 }
 
 type Module struct {
@@ -45,7 +50,7 @@ func New(deps Deps) *Module {
 	payments := paymentpg.NewPaymentRepository(deps.DB)
 	webhooks := paymentpg.NewWebhookRepository(deps.DB)
 
-	gateway, signatureHeader := buildGateway(deps.Config)
+	gateway, signatureHeader := buildGateway(deps.Config, deps.Guards)
 
 	service := app.NewPaymentService(
 		deps.DB, payments, webhooks, gateway, deps.Users, deps.Events, deps.Clock,
@@ -71,7 +76,7 @@ func New(deps Deps) *Module {
 //
 // config.Load already refuses to boot production without PAYMENT_KEY_SECRET and
 // PAYMENT_WEBHOOK_SECRET, so the mock cannot silently end up live.
-func buildGateway(cfg *config.Config) (domain.Gateway, string) {
+func buildGateway(cfg *config.Config, guards *resilience.Registry) (domain.Gateway, string) {
 	useMock := cfg.Payment.Provider == "mock" ||
 		(!cfg.IsProduction() && cfg.Payment.KeySecret == "")
 
@@ -82,6 +87,7 @@ func buildGateway(cfg *config.Config) (domain.Gateway, string) {
 		cfg.Payment.KeyID,
 		cfg.Payment.KeySecret,
 		cfg.Payment.WebhookSecret,
+		guards,
 	), "X-Razorpay-Signature"
 }
 

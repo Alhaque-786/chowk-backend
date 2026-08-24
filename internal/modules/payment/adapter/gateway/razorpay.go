@@ -34,7 +34,13 @@ type Razorpay struct {
 	guard         *resilience.Guard
 }
 
-func NewRazorpay(keyID, keySecret, webhookSecret string) *Razorpay {
+// NewRazorpay builds the live gateway.
+//
+// `guards` may be nil — a unit test constructing this directly has no registry and
+// should not have to build one. Registering is what makes the circuit breaker's
+// state visible on /status; without it the breaker still works and simply cannot be
+// observed, which is the situation this parameter was added to end.
+func NewRazorpay(keyID, keySecret, webhookSecret string, guards *resilience.Registry) *Razorpay {
 	return &Razorpay{
 		keyID:         keyID,
 		keySecret:     keySecret,
@@ -44,7 +50,7 @@ func NewRazorpay(keyID, keySecret, webhookSecret string) *Razorpay {
 			// connection cannot outlive its budget.
 			Timeout: 15 * time.Second,
 		},
-		guard: resilience.NewGuard(resilience.GuardConfig{
+		guard: guards.Register(resilience.NewGuard(resilience.GuardConfig{
 			Name:          "razorpay",
 			Timeout:       10 * time.Second,
 			MaxConcurrent: 20,
@@ -53,7 +59,7 @@ func NewRazorpay(keyID, keySecret, webhookSecret string) *Razorpay {
 			// charge is a double charge. Retries are enabled per-operation below
 			// only where they are provably safe.
 			DisableRetry: true,
-		}),
+		})),
 	}
 }
 

@@ -169,7 +169,7 @@ func TestWebhookMapsStatuses(t *testing.T) {
 // This is why the mock is trustworthy: if the real adapter's verification ever
 // diverges, the mock stops proving anything about production and this test fails.
 func TestRazorpayVerificationMatchesMock(t *testing.T) {
-	razorpay := NewRazorpay("key", "secret", testSecret)
+	razorpay := NewRazorpay("key", "secret", testSecret, nil)
 
 	// A Razorpay-shaped body, since its adapter parses a nested envelope.
 	body := []byte(`{"event":"payment.captured","payload":{"payment":{"entity":` +
@@ -189,7 +189,7 @@ func TestRazorpayVerificationMatchesMock(t *testing.T) {
 // the check in exactly the environment where somebody forgot to set it — which is
 // the environment where it matters most.
 func TestRazorpayFailsClosedWithoutSecret(t *testing.T) {
-	razorpay := NewRazorpay("key", "secret", "")
+	razorpay := NewRazorpay("key", "secret", "", nil)
 
 	body := []byte(`{"event":"payment.captured"}`)
 	if _, err := razorpay.VerifyWebhook(body, "anything"); err == nil {
