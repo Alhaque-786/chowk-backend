@@ -52,6 +52,17 @@ type RedisConfig struct {
 	Addr     string
 	Password string
 	DB       int
+
+	// URL is a full connection string, and takes precedence over the three fields
+	// above when set. Hosted providers hand you exactly this, and the scheme is
+	// the ONLY place TLS can be expressed:
+	//
+	//   redis://…    plaintext, for a local container
+	//   rediss://…   TLS, which every hosted Redis requires and Upstash mandates
+	//
+	// Kept as an alternative rather than a replacement so local development stays
+	// REDIS_ADDR=localhost:6379 with no credentials to fumble.
+	URL string
 }
 
 type AuthConfig struct {
@@ -143,6 +154,7 @@ func Load() (*Config, error) {
 			Addr:     optString("REDIS_ADDR", "localhost:6379"),
 			Password: os.Getenv("REDIS_PASSWORD"),
 			DB:       optInt("REDIS_DB", 0),
+			URL:      os.Getenv("REDIS_URL"),
 		},
 		Auth: AuthConfig{
 			JWTSecret:       require("JWT_SECRET"),

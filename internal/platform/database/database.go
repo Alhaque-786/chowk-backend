@@ -50,6 +50,10 @@ func Connect(ctx context.Context, cfg config.PostgresConfig) (*DB, error) {
 		return nil, fmt.Errorf("database: parse DSN: %w", err)
 	}
 
+	if err := rejectTransactionPooler(poolCfg.ConnConfig.Port, poolCfg.ConnConfig.DefaultQueryExecMode); err != nil {
+		return nil, err
+	}
+
 	poolCfg.MaxConns = cfg.MaxConns
 	poolCfg.MinConns = cfg.MinConns
 	poolCfg.MaxConnLifetime = cfg.MaxConnLifetime
@@ -75,6 +79,51 @@ func (db *DB) Close() { db.pool.Close() }
 func (db *DB) Pool() *pgxpool.Pool { return db.pool }
 
 // Health verifies the pool can still serve queries, for the readiness probe.
+/*
+rejectTransactionPooler refuses a DSN pointed at a transaction-mode connection
+pooler, because the failure it causes is one of the nastiest kinds.
+
+pgx uses the extended protocol and caches prepared statements per connection.
+A transaction-mode pooler hands a different backend connection to each
+TRANSACTION, so a statement prepared on one connection is unknown on the next.
+The result is "prepared statement \"lrupsc_1_0\" does not exist" — appearing only
+under concurrency, only sometimes, and looking like database corruption rather
+than a configuration mistake. It passes every local test, because locally there
+is no pooler.
+
+6543 is Supabase's Supavisor transaction-mode port; 6432 is the PgBouncer
+convention. A persistent Go service wants SESSION mode instead (Supabase serves
+that on 5432 via the pooler host, which also gives IPv4 — the direct connection
+is IPv6-only without the paid add-on). Session mode keeps one backend connection
+per client connection, so prepared statements behave normally and this whole class
+of bug does not exist.
+
+Refused rather than auto-corrected: silently rewriting someone's connection
+string is worse than telling them, and the fix is one character in an env var.
+The escape hatch is to disable pgx's statement cache
+(`?default_query_exec_mode=exec`), which is why the check looks for that first --
+someone who has genuinely chosen transaction mode has already said so.
+*/
+func rejectTransactionPooler(port uint16, mode pgx.QueryExecMode) error {
+	if port != 6543 && port != 6432 {
+		return nil
+	}
+	// The deliberate opt-out. `?default_query_exec_mode=exec` tells pgx to send
+	// statements unprepared, which is exactly what makes transaction pooling safe --
+	// so someone who set it has already made this decision and does not need to be
+	// stopped.
+	if mode == pgx.QueryExecModeExec || mode == pgx.QueryExecModeSimpleProtocol {
+		return nil
+	}
+	return fmt.Errorf(
+		"database: POSTGRES_DSN points at port %d, a transaction-mode pooler. "+
+			"pgx caches prepared statements per connection and transaction pooling "+
+			"reassigns connections per transaction, which fails intermittently under "+
+			"load with \"prepared statement does not exist\". Use the session-mode "+
+			"port (5432) for a long-lived service, or add "+
+			"?default_query_exec_mode=exec to opt out deliberately", port)
+}
+
 func (db *DB) Health(ctx context.Context) error { return db.pool.Ping(ctx) }
 
 // Q returns the Querier a repository should use: the ambient transaction if the

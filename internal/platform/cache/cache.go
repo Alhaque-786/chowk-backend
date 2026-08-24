@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"sync"
 	"time"
 
@@ -43,24 +44,101 @@ type Redis struct {
 	client *redis.Client
 }
 
+// Connect opens the Redis connection.
+//
+// TWO WAYS IN, because local development and a hosted provider want different
+// things. REDIS_URL wins when set: hosted Redis hands you a single connection
+// string, and the scheme is the only place TLS can be expressed. Otherwise the
+// discrete Addr/Password/DB fields apply, so a local container stays
+// REDIS_ADDR=localhost:6379 with nothing else to configure.
+//
+// TLS IS NOT A FLAG HERE, deliberately. `rediss://` already means "TLS", so a
+// separate REDIS_TLS boolean would create a second source of truth that can
+// disagree with the URL — and the failure when they disagree is a connection that
+// hangs on a handshake rather than a clear error. go-redis reads the scheme and
+// builds the tls.Config itself.
 func Connect(ctx context.Context, cfg config.RedisConfig) (*Redis, error) {
-	client := redis.NewClient(&redis.Options{
-		Addr:         cfg.Addr,
-		Password:     cfg.Password,
-		DB:           cfg.DB,
-		DialTimeout:  5 * time.Second,
-		ReadTimeout:  3 * time.Second,
-		WriteTimeout: 3 * time.Second,
-		PoolSize:     20,
-	})
+	opts, err := options(cfg)
+	if err != nil {
+		return nil, err
+	}
+
+	client := redis.NewClient(opts)
 
 	pingCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	if err := client.Ping(pingCtx).Err(); err != nil {
 		_ = client.Close()
-		return nil, fmt.Errorf("cache: ping redis at %s: %w", cfg.Addr, err)
+		// The address, never the password. This error reaches logs, and a URL-form
+		// credential would be pasted into an issue tracker within the week.
+		return nil, fmt.Errorf("cache: ping redis at %s: %w", redacted(opts.Addr), err)
 	}
 	return &Redis{client: client}, nil
+}
+
+func options(cfg config.RedisConfig) (*redis.Options, error) {
+	timeouts := func(o *redis.Options) *redis.Options {
+		o.DialTimeout = 5 * time.Second
+		o.ReadTimeout = 3 * time.Second
+		o.WriteTimeout = 3 * time.Second
+		o.PoolSize = 20
+		return o
+	}
+
+	if cfg.URL == "" {
+		return timeouts(&redis.Options{
+			Addr:     cfg.Addr,
+			Password: cfg.Password,
+			DB:       cfg.DB,
+		}), nil
+	}
+
+	opts, err := redis.ParseURL(cfg.URL)
+	if err != nil {
+		// Deliberately does NOT wrap the URL into the message: it contains the
+		// password. A parse failure is about shape, and the shape is describable
+		// without the secret.
+		return nil, fmt.Errorf("cache: REDIS_URL is not a valid redis:// or rediss:// connection string: %w", err)
+	}
+
+	/*
+		A hosted Redis over plaintext is a mistake worth refusing rather than
+		warning about. `redis://` to anything that is not loopback sends the
+		password in the clear on the first command, and the cache holds session
+		and OTP-throttling keys.
+
+		Localhost is exempt because that is the local container, where there is no
+		network to sniff and requiring certificates would make development worse
+		for no gain.
+	*/
+	if opts.TLSConfig == nil && !isLoopback(opts.Addr) {
+		return nil, fmt.Errorf(
+			"cache: REDIS_URL points at %s over plaintext redis://; use rediss:// so the password is not sent in the clear",
+			redacted(opts.Addr))
+	}
+
+	return timeouts(opts), nil
+}
+
+func isLoopback(addr string) bool {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		host = addr
+	}
+	if host == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
+
+// redacted keeps the host and port and drops anything else, so an error can name
+// where it was trying to reach without naming how to get in.
+func redacted(addr string) string {
+	if host, port, err := net.SplitHostPort(addr); err == nil {
+		return host + ":" + port
+	}
+	return addr
 }
 
 func (r *Redis) Get(ctx context.Context, key string) ([]byte, error) {
