@@ -108,18 +108,25 @@ func User(t *testing.T, db *database.DB) id.ID {
 	return userID
 }
 
-// digits renders n decimal digits derived from an id, for columns that must look
-// like a phone number and be unique.
+// digits renders n decimal digits that are unique per call.
+//
+// READS THE UUID FROM THE END, NOT THE START, and that is the whole point.
+// id.New() is UUIDv7, which leads with a millisecond timestamp — so ids generated
+// back to back share their leading characters. Taking the FIRST digits produced
+// identical output for five consecutive ids, which in a phone-number column meant
+// two fixtures silently became the same user.
+//
+// That is exactly how it was found: an auth test registered one phone, generated a
+// "nonexistent" phone the same way, and the login for the nonexistent phone
+// succeeded — because it was the same number. It read as an authentication bypass
+// for a minute. The random half of a v7 lives at the end.
 func digits(from id.ID, n int) string {
-	const set = "0123456789"
 	raw := from.String()
 	out := make([]byte, 0, n)
-	for i := 0; len(out) < n && i < len(raw); i++ {
+	for i := len(raw) - 1; i >= 0 && len(out) < n; i-- {
 		if raw[i] >= '0' && raw[i] <= '9' {
 			out = append(out, raw[i])
-			continue
 		}
-		out = append(out, set[int(raw[i])%10])
 	}
 	for len(out) < n {
 		out = append(out, '0')
