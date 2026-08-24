@@ -130,6 +130,13 @@ func New(ctx context.Context, cfg *config.Config, log *slog.Logger) (*Server, er
 		return nil, err
 	}
 
+	// Emitted once, at startup, next to everything else an operator reads when a
+	// deployment comes up. A TLS misconfiguration is exactly the kind of thing that
+	// is obvious in a startup line and invisible forever afterwards.
+	for _, w := range db.Warnings() {
+		log.Warn("database configuration", "warning", w)
+	}
+
 	redis, err := cache.Connect(ctx, cfg.Redis)
 	if err != nil {
 		db.Close()

@@ -14,9 +14,12 @@ package database
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"math/rand/v2"
+	"net"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -38,6 +41,15 @@ type Querier interface {
 // DB wraps the pool and exposes the transaction boundary.
 type DB struct {
 	pool *pgxpool.Pool
+
+	// unverifiedTLS records that the connection is encrypted but NOT
+	// authenticated. Held rather than logged inside Connect, which has no logger,
+	// and surfaced through Warnings() so the composition root can emit it with the
+	// rest of startup. A warning nobody can reach is the same as no warning — see
+	// Guard.State(), which was documented as feeding a health endpoint and called
+	// from nowhere.
+	unverifiedTLS bool
+	host          string
 }
 
 type txKey struct{}
@@ -51,6 +63,9 @@ func Connect(ctx context.Context, cfg config.PostgresConfig) (*DB, error) {
 	}
 
 	if err := rejectTransactionPooler(poolCfg.ConnConfig.Port, poolCfg.ConnConfig.DefaultQueryExecMode); err != nil {
+		return nil, err
+	}
+	if err := requireTLSToRemoteHost(poolCfg.ConnConfig.Host, poolCfg.ConnConfig.TLSConfig); err != nil {
 		return nil, err
 	}
 
@@ -71,7 +86,11 @@ func Connect(ctx context.Context, cfg config.PostgresConfig) (*DB, error) {
 		pool.Close()
 		return nil, fmt.Errorf("database: ping: %w", err)
 	}
-	return &DB{pool: pool}, nil
+	return &DB{
+		pool:          pool,
+		host:          poolCfg.ConnConfig.Host,
+		unverifiedTLS: unverifiedTLS(poolCfg.ConnConfig.Host, poolCfg.ConnConfig.TLSConfig),
+	}, nil
 }
 
 func (db *DB) Close() { db.pool.Close() }
@@ -122,6 +141,80 @@ func rejectTransactionPooler(port uint16, mode pgx.QueryExecMode) error {
 			"load with \"prepared statement does not exist\". Use the session-mode "+
 			"port (5432) for a long-lived service, or add "+
 			"?default_query_exec_mode=exec to opt out deliberately", port)
+}
+
+/*
+requireTLSToRemoteHost refuses an unencrypted connection to anything that is not
+loopback.
+
+`sslmode=disable` is the one people reach for when a connection will not work, and
+against a hosted database it sends the password and then every row — orders,
+addresses, payment references — in clear text across the public internet. It also
+succeeds, which is why it survives: the app starts, the tests pass, and nothing
+ever complains.
+
+Loopback is exempt. The local container has no certificates and no network to
+intercept, and requiring TLS there would make development worse for nothing.
+
+A NOTE ON `require`, WHICH IS THE MORE INTERESTING TRAP. Measured with pgx v5:
+
+	(no sslmode)         TLSConfig set, InsecureSkipVerify=true
+	sslmode=disable      TLSConfig nil          <- refused here
+	sslmode=prefer       TLSConfig set, InsecureSkipVerify=true
+	sslmode=require      TLSConfig set, InsecureSkipVerify=true
+	sslmode=verify-full  TLSConfig set, InsecureSkipVerify=false
+
+So `require` means ENCRYPTED, not VERIFIED. It accepts any certificate at all, so
+anyone able to answer for the host can present their own and read and rewrite the
+whole session. Only `verify-full` checks the chain and the hostname.
+
+That is a warning rather than a refusal, deliberately: Supabase signs its Postgres
+certificates with its own CA ("Supabase Intermediate 2021 CA", verified by
+handshake — the chain is self-signed and does NOT validate against the system
+trust store), so `verify-full` needs their CA file and refusing without it would
+block a working deployment on a setting the operator may not be able to satisfy
+yet. The fix is to download the CA from the dashboard and use
+`?sslmode=verify-full&sslrootcert=/path/to/prod-ca.crt`.
+*/
+func requireTLSToRemoteHost(host string, tlsCfg *tls.Config) error {
+	if tlsCfg != nil || isLoopbackHost(host) {
+		return nil
+	}
+	return fmt.Errorf(
+		"database: POSTGRES_DSN connects to %s with TLS disabled; the password and "+
+			"every row would cross the network in clear text. Use sslmode=require at "+
+			"minimum, or sslmode=verify-full with sslrootcert=<ca.crt> to also verify "+
+			"the certificate", host)
+}
+
+// unverifiedTLS reports a connection that is encrypted but not authenticated.
+func unverifiedTLS(host string, tlsCfg *tls.Config) bool {
+	return tlsCfg != nil && tlsCfg.InsecureSkipVerify && !isLoopbackHost(host)
+}
+
+// Warnings returns configuration problems that are not fatal but that somebody
+// should see. Emitted by the caller at startup, once, rather than per query.
+func (db *DB) Warnings() []string {
+	if !db.unverifiedTLS {
+		return nil
+	}
+	return []string{fmt.Sprintf(
+		"postgres connection to %s is encrypted but NOT verified (sslmode=require or "+
+			"prefer sets InsecureSkipVerify): any host able to answer for that name can "+
+			"present its own certificate and read the session. Download the provider CA "+
+			"and use sslmode=verify-full with sslrootcert=<ca.crt>", db.host)}
+}
+
+func isLoopbackHost(host string) bool {
+	// A unix socket directory, which pgx passes through as the host.
+	if strings.HasPrefix(host, "/") {
+		return true
+	}
+	if host == "localhost" || host == "" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
 func (db *DB) Health(ctx context.Context) error { return db.pool.Ping(ctx) }
