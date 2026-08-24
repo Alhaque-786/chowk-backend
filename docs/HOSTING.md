@@ -206,3 +206,58 @@ blocks.
 Supabase runs **PostgreSQL 17.6**. CI and docker-compose pin **16.4-alpine**.
 Worth aligning: testing on 16 and deploying on 17 means the planner, and any
 behaviour that changed between majors, is untested.
+
+## What actually goes over the wire
+
+Measured by wrapping the TCP connection in a byte counter, because the alternative
+is guessing from the specification.
+
+The Postgres frontend/backend protocol v3 is a plain TCP connection carrying a
+BINARY, length-prefixed message stream — not JSON, and not text unless a client
+asks for it. pgx requests binary result format for the types that support it, so an
+`int8` arrives as eight bytes rather than as the characters "1234567".
+
+The same 20 menu rows, three ways:
+
+| encoding | bytes received |
+| --- | --- |
+| native protocol | **1,686 B** |
+| `row_to_json` per row | 3,106 B (1.8x) |
+| one `json_agg` blob, i.e. what a REST API returns | 2,971 B (1.8x) |
+
+Per-statement overhead, once the plan is cached: **88 bytes out, 40 bytes in.** The
+first execution of a statement costs more (233 out, 92 in) because pgx sends
+Parse and Describe and caches the result.
+
+Connection setup is 213 bytes out and 583 bytes in, and it is worth noting that
+those bytes cost 113 ms of the 203 ms connection time — the expense is round trips,
+not volume.
+
+### It is not gRPC, and it is missing gRPC's best feature
+
+Both are binary and length-prefixed, so the comparison is fair, but gRPC is HTTP/2
+plus protobuf and HTTP/2 MULTIPLEXES: many concurrent calls share one connection.
+The Postgres protocol does not. One connection carries one query at a time, which
+is the entire reason connection pools exist — `POSTGRES_MAX_CONNS=25` is 25 TCP
+connections because 25 concurrent queries need 25 sockets.
+
+What it does have is PIPELINING: send N requests back to back, then read N
+responses, paying one round trip instead of N. `pgx.Batch` / `conn.SendBatch`.
+
+Measured, 10 statements:
+
+| | sequential | pipelined | speed-up |
+| --- | --- | --- | --- |
+| Supabase Mumbai | 414.8 ms | **31.5 ms** | 13.2x |
+| local | 27.8 ms | 1.0 ms | 29.1x |
+
+**This is the single largest available win on the checkout path.** It is not a free
+refactor: `CheckoutService` reads, decides, then writes, and a decision that
+depends on a previous result cannot be pipelined past it. But the statements that
+are genuinely independent — loading the cart lines, the kitchen, the address, the
+active offers — are a batch, and batching just those would remove most of the
+~300 ms.
+
+Noted rather than done: it changes the shape of a transaction that holds the
+no-oversell and coupon-cap invariants, and that deserves its own change with its
+own concurrency tests.
