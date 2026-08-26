@@ -305,6 +305,82 @@ func (s *PaymentService) publishPaymentEvent(ctx context.Context, p *domain.Paym
 // Refund implements contracts.PaymentInitiator.
 //
 // Called by ordering on cancellation or rejection.
+/*
+Capture takes funds that were only authorised.
+
+This is the second half of the assisted-vendor flow. A cart selling fresh nariyal
+pani has no inventory system, so a meaningful share of orders cannot be fulfilled
+and nobody finds out until somebody phones him. Authorising first places a hold;
+this call converts it once he commits to making the food.
+
+A NO-OP FOR EVERYTHING ELSE, and that is what makes it safe to call on the accept
+path for every order. Cash orders have no payment row worth capturing, immediate
+captures are already captured, and a failed payment has nothing held. All three
+return nil rather than an error, because the caller — a kitchen accepting an order
+— must not be blocked by a payment concern that does not apply to it.
+
+IDEMPOTENT, because staff double-tap accept and the gateway is the wrong place to
+discover that. The status check does the work: a payment already captured returns
+early, so a second call cannot take the money twice.
+*/
+func (s *PaymentService) Capture(ctx context.Context, orderID id.ID) error {
+	payment, err := s.payments.FindByOrderID(ctx, orderID)
+	if err != nil {
+		if apperr.KindOf(err) == apperr.KindNotFound {
+			// A cash order. Nothing was ever held.
+			return nil
+		}
+		return err
+	}
+
+	// Only an authorised payment has anything to take. Anything else — created,
+	// captured, failed, refunded — is either not ready or already resolved.
+	if payment.Status != domain.StatusAuthorized {
+		return nil
+	}
+
+	now := s.clock.Now()
+
+	// The gateway call comes FIRST here, which is the opposite of CreateIntent and
+	// deliberately so. On intent creation our row must exist before the money moves
+	// so a crash leaves something for reconciliation to find. Here the money is
+	// already held and the row already exists: what we must not do is record a
+	// capture that did not happen, because that promotes an order the customer was
+	// never charged for.
+	if err := s.gateway.Capture(ctx, payment.ProviderRef, payment.Amount); err != nil {
+		return err
+	}
+
+	return s.db.InTx(ctx, func(ctx context.Context) error {
+		locked, err := s.payments.FindByIDForUpdate(ctx, payment.ID)
+		if err != nil {
+			return err
+		}
+		// Re-checked under the lock. Two staff accepting at once both passed the
+		// check above; only one may transition.
+		if locked.Status != domain.StatusAuthorized {
+			return nil
+		}
+		if err := locked.TransitionTo(domain.StatusCaptured, now); err != nil {
+			if errors.Is(err, domain.ErrAlreadyInStatus) {
+				return nil
+			}
+			return err
+		}
+		if err := s.payments.Update(ctx, locked); err != nil {
+			return err
+		}
+		return s.publishPaymentEvent(ctx, locked, domain.WebhookPayload{
+			// Synthesised rather than webhook-derived: this capture was initiated by
+			// us, so there is no provider event behind it. Ordering only needs to
+			// know the payment reached captured.
+			Status:      domain.StatusCaptured,
+			ProviderRef: locked.ProviderRef,
+			Amount:      locked.Amount,
+		})
+	})
+}
+
 func (s *PaymentService) Refund(ctx context.Context, orderID id.ID, amount money.Amount, reason string) error {
 	payment, err := s.payments.FindByOrderID(ctx, orderID)
 	if err != nil {

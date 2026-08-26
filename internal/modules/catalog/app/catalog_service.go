@@ -366,6 +366,11 @@ func (s *CatalogService) AssistedKitchenIDs(ctx context.Context) ([]id.ID, error
 	return s.kitchens.AssistedIDs(ctx)
 }
 
+// IsAssisted implements contracts.KitchenAvailability.
+func (s *CatalogService) IsAssisted(ctx context.Context, kitchenID id.ID) (bool, error) {
+	return s.kitchens.IsAssisted(ctx, kitchenID)
+}
+
 // Name returns a kitchen's display name, for snapshotting onto events.
 func (s *CatalogService) Name(ctx context.Context, kitchenID id.ID) (string, error) {
 	kitchen, err := s.kitchens.FindByID(ctx, kitchenID)

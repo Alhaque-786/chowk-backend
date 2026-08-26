@@ -10,6 +10,7 @@ import (
 	"github.com/zevoxa/chowk-backend/internal/platform/eventbus"
 	"github.com/zevoxa/chowk-backend/internal/platform/httpx"
 	"github.com/zevoxa/chowk-backend/internal/platform/metrics"
+	"github.com/zevoxa/chowk-backend/internal/platform/tracing"
 	"github.com/zevoxa/chowk-backend/internal/shared/apperr"
 	"github.com/zevoxa/chowk-backend/internal/shared/clock"
 	"github.com/zevoxa/chowk-backend/internal/shared/id"
@@ -218,7 +219,40 @@ func (s *KitchenOrderService) Transition(ctx context.Context, in TransitionInput
 		}
 	}
 
+	/*
+		ACCEPTING AN ORDER IS WHAT TAKES THE MONEY, when it was only ever held.
+
+		An assisted vendor's payment is authorised rather than captured at checkout,
+		because a cart selling fresh nariyal pani has no inventory system and a real
+		share of orders cannot be fulfilled. This is the moment somebody confirmed it
+		can be — so the hold becomes a charge.
+
+		A NO-OP FOR EVERYTHING ELSE, which is why it is safe to call unconditionally:
+		Capture returns nil for a cash order, for one already captured, and for one
+		that never got past `created`. The kitchen accepting does not have to know
+		which case it is in.
+
+		THE ERROR IS NOT FATAL, and that direction is deliberate. If the capture
+		fails, the order is still confirmed and the food still gets made — we are owed
+		money and reconciliation will find it, because the payment row is sitting in
+		`authorized` with a confirmed order against it. Refusing the confirmation
+		instead would mean a gateway blip stops a vendor cooking, and the customer
+		loses their lunch over our billing problem.
+	*/
+	if in.NextStatus == domain.StatusConfirmed {
+		if err := s.payments.Capture(ctx, order.ID); err != nil {
+			metrics.ErrorsTotal.WithLabelValues("unavailable", "PAYMENT_CAPTURE_FAILED").Inc()
+			tracing.RecordError(ctx, err)
+		}
+	}
+
 	// A rejected prepaid order owes the customer a refund.
+	//
+	// An order whose funds were only AUTHORISED needs no call at all: an
+	// authorisation that is never captured lapses on its own after a few days and
+	// the hold drops off the customer's card. Refund handles that by returning early
+	// when nothing was settled, so a rejected assisted order costs the customer
+	// nothing and leaves no refund line on their statement.
 	if in.NextStatus == domain.StatusRejected && order.PaymentMethod.IsPrepaid() {
 		if refundable := order.RefundableAmount(); refundable.IsPositive() {
 			_ = s.payments.Refund(ctx, order.ID, refundable, in.Reason)

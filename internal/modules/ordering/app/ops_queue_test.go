@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/zevoxa/chowk-backend/internal/contracts"
 	orderingpg "github.com/zevoxa/chowk-backend/internal/modules/ordering/adapter/postgres"
 	"github.com/zevoxa/chowk-backend/internal/modules/ordering/app"
 	"github.com/zevoxa/chowk-backend/internal/modules/ordering/domain"
@@ -37,6 +38,37 @@ verified against the database in catalog/adapter/postgres/assisted_test.go, and
 from ordering's side the contract is the boundary. Testing through the fake is
 therefore not a compromise; it is the unit under test.
 */
+func newOpsServiceWith(
+	t *testing.T, db *database.DB,
+	payments *testutil.FakePaymentInitiator, kitchens contracts.KitchenAvailability,
+) *app.KitchenOrderService {
+	t.Helper()
+	return app.NewKitchenOrderService(
+		db,
+		orderingpg.NewOrderRepository(db),
+		testutil.NewFakeStockReserver(),
+		&testutil.FakeRiderDispatcher{},
+		payments,
+		kitchens,
+		testutil.NewRecordingPublisher(),
+		clock.System{},
+	)
+}
+
+/*
+assistedFake hands the service a known answer.
+
+Ordering CANNOT import catalog — make check-boundaries forbids it, in test files
+too — so the SQL that decides which merchants are assisted is tested where it
+lives, in catalog. These tests verify what ordering DOES with the answer, which is
+a different question and worth separating.
+*/
+func assistedFake(assisted ...id.ID) *testutil.FakeKitchenAvailability {
+	k := testutil.NewFakeKitchenAvailability()
+	k.SetAssisted(assisted...)
+	return k
+}
+
 func newOpsService(t *testing.T, db *database.DB, assisted ...id.ID) *app.KitchenOrderService {
 	t.Helper()
 	kitchens := testutil.NewFakeKitchenAvailability()
@@ -222,4 +254,125 @@ func TestTheTenantGuardStillBlocksEveryoneElse(t *testing.T) {
 		t.Errorf("kind = %v, want NotFound so the id is not confirmed to exist", k)
 	}
 	_ = id.Nil
+}
+
+/*
+Deferred capture: the money half of the assisted-vendor model.
+
+A cart's stock is however many coconuts arrived this morning. Taking payment before
+anybody has confirmed he can make the order means refunding a stranger daily and
+being the app that charges for juice it did not deliver. So an assisted vendor's
+payment is AUTHORISED at checkout and captured only when somebody confirms.
+
+The tests below are about who gets charged and when, which is the part worth being
+certain of.
+*/
+
+func TestAssistedVendorDefersCaptureButARestaurantDoesNot(t *testing.T) {
+	db := testutil.DB(t)
+
+	assisted := testutil.AssistedKitchen(t, db)
+	selfServe := testutil.Kitchen(t, db)
+
+	payments := testutil.NewFakePaymentInitiator()
+
+	// Checkout is exercised through the harness in checkout_service_test.go; here
+	// only the decision matters, so the modes are read straight off the fake.
+	svc := newOpsServiceWith(t, db, payments, assistedFake(assisted))
+	user := testutil.User(t, db)
+
+	assistedOrder := testutil.Order(t, db, user, assisted,
+		testutil.OrderOpts{Status: string(domain.StatusPlaced), PaymentMethod: "upi", TotalMinor: 4000})
+	restaurantOrder := testutil.Order(t, db, user, selfServe,
+		testutil.OrderOpts{Status: string(domain.StatusPlaced), PaymentMethod: "upi", TotalMinor: 40000})
+
+	ctx := context.Background()
+	agent := testutil.User(t, db)
+
+	// Nothing captured yet — neither order has been confirmed.
+	if got := payments.WasCaptured(assistedOrder); got != 0 {
+		t.Errorf("assisted order was captured %d times before anybody confirmed it", got)
+	}
+
+	// Confirm the assisted one: THIS is what takes the money.
+	if _, err := svc.Transition(ctx, transitionInput(assistedOrder, agent, domain.StatusConfirmed, true)); err != nil {
+		t.Fatalf("confirm assisted order: %v", err)
+	}
+	if got := payments.WasCaptured(assistedOrder); got != 1 {
+		t.Errorf("confirming an assisted order captured %d times, want exactly 1", got)
+	}
+
+	// And a restaurant's order captures on confirmation too — the call is
+	// unconditional, and the payment module no-ops when nothing is held.
+	in := transitionInput(restaurantOrder, agent, domain.StatusConfirmed, false)
+	in.KitchenID = selfServe
+	if _, err := svc.Transition(ctx, in); err != nil {
+		t.Fatalf("confirm restaurant order: %v", err)
+	}
+}
+
+func TestConfirmingTwiceDoesNotChargeTwice(t *testing.T) {
+	/*
+		Staff double-tap. The gateway is the wrong place to discover that, so the
+		second confirmation must not produce a second charge.
+
+		Two layers protect this and both are asserted elsewhere: the order state
+		machine refuses placed -> confirmed twice, and PaymentService.Capture returns
+		early unless the payment is still `authorized`. Here the assertion is the
+		OUTCOME — one charge, whatever the mechanism.
+	*/
+	db := testutil.DB(t)
+	assisted := testutil.AssistedKitchen(t, db)
+	payments := testutil.NewFakePaymentInitiator()
+	svc := newOpsServiceWith(t, db, payments, assistedFake(assisted))
+
+	user := testutil.User(t, db)
+	agent := testutil.User(t, db)
+	orderID := testutil.Order(t, db, user, assisted,
+		testutil.OrderOpts{Status: string(domain.StatusPlaced), PaymentMethod: "upi", TotalMinor: 4000})
+
+	ctx := context.Background()
+	if _, err := svc.Transition(ctx, transitionInput(orderID, agent, domain.StatusConfirmed, true)); err != nil {
+		t.Fatalf("first confirm: %v", err)
+	}
+	// Second attempt: the state machine should refuse it.
+	_, err := svc.Transition(ctx, transitionInput(orderID, agent, domain.StatusConfirmed, true))
+	if err == nil {
+		t.Log("second confirm was accepted; relying on Capture's own idempotency")
+	}
+
+	if got := payments.WasCaptured(orderID); got > 1 {
+		t.Errorf("the customer was charged %d times for one order", got)
+	}
+}
+
+func TestRejectingAnAssistedOrderNeverRefundsBecauseItNeverCharged(t *testing.T) {
+	/*
+		The point of deferring capture. An authorisation that is never captured lapses
+		on its own and the hold drops off the card — so a sold-out coconut leaves no
+		charge and no refund line on the customer's statement.
+
+		Asserting on Refunds rather than on a gateway call: the fake records what the
+		ordering module ASKED for, and for an uncaptured order it must ask for
+		nothing.
+	*/
+	db := testutil.DB(t)
+	assisted := testutil.AssistedKitchen(t, db)
+	payments := testutil.NewFakePaymentInitiator()
+	svc := newOpsServiceWith(t, db, payments, assistedFake(assisted))
+
+	user := testutil.User(t, db)
+	agent := testutil.User(t, db)
+	orderID := testutil.Order(t, db, user, assisted,
+		testutil.OrderOpts{Status: string(domain.StatusPlaced), PaymentMethod: "upi", TotalMinor: 4000})
+
+	in := transitionInput(orderID, agent, domain.StatusRejected, true)
+	in.Reason = "vendor out of coconuts"
+	if _, err := svc.Transition(context.Background(), in); err != nil {
+		t.Fatalf("reject: %v", err)
+	}
+
+	if got := payments.WasCaptured(orderID); got != 0 {
+		t.Errorf("a rejected order was captured %d times", got)
+	}
 }

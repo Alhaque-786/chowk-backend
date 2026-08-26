@@ -91,6 +91,15 @@ func (NullPaymentInitiator) Refund(context.Context, id.ID, money.Amount, string)
 		"Refunds cannot be processed automatically yet.")
 }
 
+func (NullPaymentInitiator) Capture(context.Context, id.ID) error {
+	// Nil, not an error, and the asymmetry with Refund above is deliberate. Capture
+	// runs on the accept path for EVERY order, and it is a no-op whenever nothing
+	// was held — a cash order, or one already captured. With no payment provider
+	// wired at all there is by definition nothing to capture, so failing here would
+	// block a kitchen from accepting cash orders.
+	return nil
+}
+
 // ---------------------------------------------------------------------------
 // NullRiderDispatcher — delivery not built yet.
 //

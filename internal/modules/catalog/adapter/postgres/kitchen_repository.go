@@ -346,3 +346,21 @@ func (r *KitchenRepository) AssistedIDs(ctx context.Context) ([]id.ID, error) {
 	}
 	return out, rows.Err()
 }
+
+// IsAssisted reports whether one outlet's merchant operates in assisted mode.
+//
+// A single-row EXISTS rather than reusing AssistedIDs and scanning: checkout calls
+// this on every order, and the list grows with every vendor onboarded.
+func (r *KitchenRepository) IsAssisted(ctx context.Context, kitchenID id.ID) (bool, error) {
+	const q = `
+		SELECT EXISTS (
+			SELECT 1 FROM kitchens k
+			JOIN merchants m ON m.id = k.merchant_id
+			WHERE k.id = $1 AND m.operating_mode = 'assisted')`
+
+	var assisted bool
+	if err := r.db.Q(ctx).QueryRow(ctx, q, kitchenID).Scan(&assisted); err != nil {
+		return false, apperr.Internal(fmt.Errorf("catalog: is kitchen assisted: %w", err))
+	}
+	return assisted, nil
+}

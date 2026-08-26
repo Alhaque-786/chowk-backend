@@ -74,6 +74,10 @@ type KitchenAvailability interface {
 		module.
 	*/
 	AssistedKitchenIDs(ctx context.Context) ([]id.ID, error)
+	// IsAssisted reports whether ONE outlet is operated on the vendor's behalf.
+	// Checkout needs the single-kitchen form to choose a capture mode; scanning
+	// the full list per checkout would grow with every vendor onboarded.
+	IsAssisted(ctx context.Context, kitchenID id.ID) (bool, error)
 	ServesLocation(ctx context.Context, kitchenID id.ID, lat, lng float64) (bool, error)
 	// Name is needed so ordering can snapshot it onto the events it publishes.
 	// Cheap because catalog caches the kitchen, and it keeps consumers from
@@ -179,7 +183,38 @@ type PaymentIntentRequest struct {
 	Amount         money.Amount
 	Method         string // "upi" | "card" | "netbanking" | "wallet" | "cod"
 	IdempotencyKey string
+
+	// CaptureMode decides WHEN the money actually moves. See CaptureMode.
+	CaptureMode CaptureMode
 }
+
+/*
+CaptureMode separates authorising a payment from taking it.
+
+CaptureImmediate is right for a restaurant: it has a dashboard, it accepts within
+seconds, and the order is as good as confirmed by the time the customer's phone
+buzzes.
+
+CaptureOnConfirmation exists for assisted vendors, and it is the difference between
+a workable business and an angry one. A cart selling fresh nariyal pani has no
+inventory system — his stock is however many coconuts arrived this morning — so a
+meaningful share of orders cannot be fulfilled and nobody knows until somebody
+phones him. Taking the money first means refunding a stranger daily and being the
+app that charges for juice it did not deliver.
+
+Authorising instead places a HOLD. If the vendor can make it, we capture and the
+customer sees one clean charge. If he cannot, we simply never capture: card
+authorisations lapse on their own after a few days and the hold drops off, so the
+release path needs no gateway call and no refund appears on the statement at all.
+*/
+type CaptureMode string
+
+const (
+	// CaptureImmediate is the zero value on purpose: a request that forgets to set
+	// this behaves the way every existing caller already does.
+	CaptureImmediate      CaptureMode = ""
+	CaptureOnConfirmation CaptureMode = "on_confirmation"
+)
 
 type PaymentIntent struct {
 	PaymentID   id.ID
@@ -195,6 +230,15 @@ type PaymentIntent struct {
 type PaymentInitiator interface {
 	CreateIntent(ctx context.Context, req PaymentIntentRequest) (PaymentIntent, error)
 	Refund(ctx context.Context, orderID id.ID, amount money.Amount, reason string) error
+
+	/*
+		Capture takes funds that were only authorised, and is a no-op when there is
+		nothing held — an order paid immediately, or one paid in cash.
+
+		Called when a vendor commits to making the food. Idempotent by necessity:
+		staff double-tap accept, and the gateway is not the place to find out.
+	*/
+	Capture(ctx context.Context, orderID id.ID) error
 }
 
 // ---------------------------------------------------------------------------

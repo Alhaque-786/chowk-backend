@@ -5,23 +5,23 @@ import (
 	"testing"
 
 	catalogpg "github.com/zevoxa/chowk-backend/internal/modules/catalog/adapter/postgres"
-	"github.com/zevoxa/chowk-backend/internal/shared/id"
 	"github.com/zevoxa/chowk-backend/internal/testutil"
 )
 
 /*
-AssistedIDs: which outlets cannot take an order themselves.
+The assisted-vendor lookup, tested where the SQL lives.
 
-Tested HERE rather than from ordering, and that placement was forced by the
-boundary checker — correctly. The join across `merchants` is catalog's query, and
-ordering has no business knowing it exists; from ordering's side the contract IS
-the boundary, so its own tests legitimately use the fake.
+Ordering decides what to do with the answer — defer capture, route to the ops queue
+— but it cannot import catalog (make check-boundaries forbids it, in test files
+too), so its tests hand a fake a known answer. That leaves the join itself covered
+only here.
 
-That is the split this file exists to honour: the SQL is verified where the SQL
-lives, and the consumer is verified against the interface.
+BOTH FORMS, because they are separate queries that must agree: a plural list for the
+ops queue and a single EXISTS for the checkout path. Disagreement means an order
+that defers capture while never appearing in the queue that would capture it —
+food delivered and never charged for.
 */
-
-func TestAssistedIDsFindsVendorsWithNoDashboard(t *testing.T) {
+func TestAssistedLookupAgreesBetweenBothForms(t *testing.T) {
 	db := testutil.DB(t)
 	ctx := context.Background()
 	repo := catalogpg.NewKitchenRepository(db)
@@ -29,64 +29,67 @@ func TestAssistedIDsFindsVendorsWithNoDashboard(t *testing.T) {
 	assisted := testutil.AssistedKitchen(t, db)
 	selfServe := testutil.Kitchen(t, db)
 
-	ids, err := repo.AssistedIDs(ctx)
+	yes, err := repo.IsAssisted(ctx, assisted)
 	if err != nil {
-		t.Fatalf("assisted ids: %v", err)
+		t.Fatalf("IsAssisted: %v", err)
+	}
+	if !yes {
+		t.Error("an assisted merchant's kitchen reported as self-serve; its orders " +
+			"would capture immediately and never reach the ops queue")
 	}
 
-	if !contains(ids, assisted) {
-		t.Errorf("assisted kitchen %s is missing; its orders would never be actioned "+
-			"because the vendor has no dashboard to see them in", assisted)
+	no, err := repo.IsAssisted(ctx, selfServe)
+	if err != nil {
+		t.Fatalf("IsAssisted: %v", err)
 	}
-	if contains(ids, selfServe) {
-		t.Errorf("self-serve kitchen %s was reported as assisted; its orders would be "+
-			"queued for our staff as well as its own, and two people would call the "+
-			"same vendor", selfServe)
+	if no {
+		t.Error("a self-serve kitchen reported as assisted; its payments would be " +
+			"authorised and left uncaptured until somebody noticed")
+	}
+
+	ids, err := repo.AssistedIDs(ctx)
+	if err != nil {
+		t.Fatalf("AssistedIDs: %v", err)
+	}
+	var sawAssisted, sawSelfServe bool
+	for _, k := range ids {
+		switch k {
+		case assisted:
+			sawAssisted = true
+		case selfServe:
+			sawSelfServe = true
+		}
+	}
+	if !sawAssisted {
+		t.Error("AssistedIDs omitted a kitchen that IsAssisted confirmed — the two " +
+			"queries disagree, which is the failure that loses money silently")
+	}
+	if sawSelfServe {
+		t.Error("AssistedIDs included a self-serve kitchen")
 	}
 }
 
-func TestAssistedIDsExcludesDeactivatedOutlets(t *testing.T) {
-	// A deactivated outlet's orders are not something to put in front of an agent:
-	// there is nothing useful to do with them and they crowd out live work.
+func TestDeactivatingAKitchenRemovesItFromTheOpsQueue(t *testing.T) {
+	// A deactivated outlet's orders are not something an agent should be asked to
+	// phone about. IsAssisted still answers truthfully — the merchant's mode has not
+	// changed — but the queue must not surface it.
 	db := testutil.DB(t)
 	ctx := context.Background()
 	repo := catalogpg.NewKitchenRepository(db)
 
-	kitchenID := testutil.AssistedKitchen(t, db)
+	assisted := testutil.AssistedKitchen(t, db)
 	if _, err := db.Q(ctx).Exec(ctx,
-		`UPDATE kitchens SET is_active = false WHERE id = $1`, kitchenID); err != nil {
+		`UPDATE kitchens SET is_active = false WHERE id = $1`, assisted); err != nil {
 		t.Fatalf("deactivate: %v", err)
 	}
 
 	ids, err := repo.AssistedIDs(ctx)
 	if err != nil {
-		t.Fatalf("assisted ids: %v", err)
+		t.Fatalf("AssistedIDs: %v", err)
 	}
-	if contains(ids, kitchenID) {
-		t.Error("a deactivated kitchen was reported as assisted")
-	}
-}
-
-func TestAssistedIDsIsEmptyNotNullWhenNoneOnboarded(t *testing.T) {
-	// The normal early state. Must not error, and the caller must be able to range
-	// over the result without a nil check.
-	db := testutil.DB(t)
-	ids, err := catalogpg.NewKitchenRepository(db).AssistedIDs(context.Background())
-	if err != nil {
-		t.Fatalf("assisted ids with none onboarded: %v", err)
-	}
-	for range ids {
-		// Other tests in this package may have left assisted vendors behind; the
-		// assertion here is only that ranging is safe.
-		break
-	}
-}
-
-func contains(ids []id.ID, want id.ID) bool {
-	for _, got := range ids {
-		if got == want {
-			return true
+	for _, k := range ids {
+		if k == assisted {
+			t.Error("a deactivated kitchen is still in the ops queue")
 		}
 	}
-	return false
 }

@@ -318,6 +318,8 @@ type KitchenRepository interface {
 	// AssistedIDs lists active outlets whose merchant cannot take orders itself.
 	// See contracts.KitchenAvailability for why ordering needs this.
 	AssistedIDs(ctx context.Context) ([]id.ID, error)
+	// IsAssisted is the single-kitchen form, for the checkout path.
+	IsAssisted(ctx context.Context, kitchenID id.ID) (bool, error)
 	Create(ctx context.Context, k *Kitchen) error
 	// Update uses optimistic locking: it must fail with a conflict if the
 	// caller's Version is stale, so two admins editing the same kitchen cannot

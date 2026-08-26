@@ -429,11 +429,36 @@ func (s *CheckoutService) Checkout(ctx context.Context, in CheckoutInput) (*Chec
 	result := &CheckoutResult{Order: order}
 
 	if in.PaymentMethod.IsPrepaid() {
+		/*
+			WHEN the money moves depends on who is accepting the order.
+
+			A restaurant has a dashboard and accepts in seconds, so capturing
+			immediately is right — the customer sees one charge and one confirmation.
+
+			An assisted vendor does not. A cart selling fresh nariyal pani has no
+			inventory system, so a real share of orders cannot be fulfilled and nobody
+			knows until an agent phones him. Taking the money first means refunding a
+			stranger every day and being the app that charges for juice it never
+			delivered. Authorising places a hold instead; it converts when he commits.
+
+			A LOOKUP FAILURE FALLS BACK TO IMMEDIATE, not to deferring. Getting this
+			wrong in the safe direction means a customer is charged for an order that
+			is then confirmed normally. Wrong in the other direction means an order
+			nobody ever captures — food delivered, never paid for.
+		*/
+		captureMode := contracts.CaptureImmediate
+		if assisted, err := s.kitchens.IsAssisted(ctx, order.KitchenID); err != nil {
+			tracing.RecordError(ctx, err)
+		} else if assisted {
+			captureMode = contracts.CaptureOnConfirmation
+		}
+
 		intent, err := s.payments.CreateIntent(ctx, contracts.PaymentIntentRequest{
-			OrderID: order.ID,
-			UserID:  in.UserID,
-			Amount:  order.Total,
-			Method:  string(in.PaymentMethod),
+			OrderID:     order.ID,
+			UserID:      in.UserID,
+			Amount:      order.Total,
+			Method:      string(in.PaymentMethod),
+			CaptureMode: captureMode,
 			// The order id doubles as the gateway idempotency key: one order can
 			// only ever have one payment intent, however many times this retries.
 			IdempotencyKey: order.ID.String(),

@@ -99,6 +99,15 @@ func (f *FakeKitchenAvailability) AssistedKitchenIDs(context.Context) ([]id.ID, 
 	return f.assisted, nil
 }
 
+func (f *FakeKitchenAvailability) IsAssisted(_ context.Context, kitchenID id.ID) (bool, error) {
+	for _, k := range f.assisted {
+		if k == kitchenID {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 func (f *FakeKitchenAvailability) ServesLocation(context.Context, id.ID, float64, float64) (bool, error) {
 	return f.Serves, nil
 }
@@ -202,6 +211,13 @@ type FakePaymentInitiator struct {
 	// actually refunded and for how much.
 	Refunds map[id.ID]money.Amount
 	Intents []id.ID
+	// Captured counts captures per order. A count above one is a double charge;
+	// a count of zero on an assisted vendor's order before confirmation is the
+	// whole point of deferring capture.
+	Captured map[id.ID]int
+	// CaptureModes records what each intent asked for, so a test can assert that
+	// an assisted vendor's order deferred capture rather than taking the money.
+	CaptureModes map[id.ID]contracts.CaptureMode
 }
 
 func NewFakePaymentInitiator() *FakePaymentInitiator {
@@ -209,6 +225,10 @@ func NewFakePaymentInitiator() *FakePaymentInitiator {
 }
 
 func (f *FakePaymentInitiator) CreateIntent(_ context.Context, req contracts.PaymentIntentRequest) (contracts.PaymentIntent, error) {
+	if f.CaptureModes == nil {
+		f.CaptureModes = map[id.ID]contracts.CaptureMode{}
+	}
+	f.CaptureModes[req.OrderID] = req.CaptureMode
 	if f.IntentErr != nil {
 		return contracts.PaymentIntent{}, f.IntentErr
 	}
@@ -221,6 +241,20 @@ func (f *FakePaymentInitiator) CreateIntent(_ context.Context, req contracts.Pay
 		RequiresAction: true,
 	}, nil
 }
+
+// Captured records which orders had funds taken, so a test can assert that an
+// assisted vendor's order was NOT charged until somebody confirmed it.
+func (f *FakePaymentInitiator) Capture(_ context.Context, orderID id.ID) error {
+	if f.Captured == nil {
+		f.Captured = map[id.ID]int{}
+	}
+	f.Captured[orderID]++
+	return nil
+}
+
+// WasCaptured reports how many times an order's funds were taken. More than once
+// is a double charge.
+func (f *FakePaymentInitiator) WasCaptured(orderID id.ID) int { return f.Captured[orderID] }
 
 func (f *FakePaymentInitiator) Refund(_ context.Context, orderID id.ID, amount money.Amount, _ string) error {
 	f.Refunds[orderID] = amount
