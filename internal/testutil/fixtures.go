@@ -57,6 +57,25 @@ func Merchant(t *testing.T, db *database.DB) id.ID {
 	return merchantID
 }
 
+// AssistedKitchen inserts a kitchen whose merchant cannot take orders itself.
+//
+// The vendor archetype is a cart selling fresh juice: no dashboard, no app, no
+// intention of acquiring either. Orders for this outlet only ever reach the ops
+// queue, so a test asserting that routing needs one of these.
+func AssistedKitchen(t *testing.T, db *database.DB) id.ID {
+	t.Helper()
+	ctx := context.Background()
+	kitchenID := Kitchen(t, db)
+
+	if _, err := db.Q(ctx).Exec(ctx, `
+		UPDATE merchants SET operating_mode = 'assisted'
+		WHERE id = (SELECT merchant_id FROM kitchens WHERE id = $1)`, kitchenID,
+	); err != nil {
+		t.Fatalf("testutil: mark merchant assisted: %v", err)
+	}
+	return kitchenID
+}
+
 // Kitchen inserts a kitchen owned by a fresh merchant.
 //
 // Coordinates are Lucknow, matching the launch city, so a distance or

@@ -26,7 +26,7 @@ const kitchenColumns = `
 	address_line1, city, pincode, latitude, longitude, delivery_radius_m,
 	is_active, is_accepting_orders, pause_reason,
 	commission_bps, packaging_fee_minor, min_order_minor, cost_for_two_minor,
-	avg_prep_minutes, rating_average, rating_count, fssai_license, gstin,
+	avg_prep_minutes, rating_average, rating_count, fssai_license, fssai_expiry, gstin,
 	is_first_party, version, created_at, updated_at`
 
 func (r *KitchenRepository) Create(ctx context.Context, k *domain.Kitchen) error {
@@ -37,9 +37,10 @@ func (r *KitchenRepository) Create(ctx context.Context, k *domain.Kitchen) error
 			is_active, is_accepting_orders, pause_reason,
 			commission_bps, packaging_fee_minor, min_order_minor, cost_for_two_minor,
 			avg_prep_minutes,
-			fssai_license, gstin, is_first_party, version, created_at, updated_at
+			fssai_license, gstin, is_first_party, version, created_at, updated_at,
+			fssai_expiry
 		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,
-		          $19,$20,$21,$22,$23,$24,$25,$26,1,$27,$28)`
+		          $19,$20,$21,$22,$23,$24,$25,$26,1,$27,$28,$29)`
 
 	// Postgres distinguishes NULL from an empty array, and the column is NOT
 	// NULL. A caller with no cuisines set should get an empty array, not a raw
@@ -55,7 +56,7 @@ func (r *KitchenRepository) Create(ctx context.Context, k *domain.Kitchen) error
 		k.IsActive, k.IsAcceptingOrders, k.PauseReason,
 		k.CommissionBps, k.PackagingFee.Minor(), k.MinOrder.Minor(), k.CostForTwo.Minor(),
 		k.AvgPrepMinutes,
-		k.FSSAILicense, k.GSTIN, k.IsFirstParty, k.CreatedAt, k.UpdatedAt,
+		k.FSSAILicense, k.GSTIN, k.IsFirstParty, k.CreatedAt, k.UpdatedAt, k.FSSAIExpiry,
 	)
 	if err != nil {
 		if database.IsUniqueViolation(err, "kitchens_slug_key") {
@@ -80,7 +81,7 @@ func (r *KitchenRepository) Update(ctx context.Context, k *domain.Kitchen) error
 			delivery_radius_m = $14, is_active = $15, is_accepting_orders = $16,
 			pause_reason = $17, commission_bps = $18, packaging_fee_minor = $19,
 			min_order_minor = $20, cost_for_two_minor = $21, avg_prep_minutes = $22,
-			fssai_license = $23, gstin = $24,
+			fssai_license = $23, gstin = $24, fssai_expiry = $27,
 			version = version + 1, updated_at = $25
 		WHERE id = $1 AND version = $26`
 
@@ -92,6 +93,10 @@ func (r *KitchenRepository) Update(ctx context.Context, k *domain.Kitchen) error
 		k.MinOrder.Minor(), k.CostForTwo.Minor(), k.AvgPrepMinutes,
 		k.FSSAILicense, k.GSTIN,
 		k.UpdatedAt, k.Version,
+		// $27, appended rather than inserted at its natural position: renumbering
+		// 27 placeholders by hand is exactly how an off-by-one gets written, and a
+		// silently shifted argument would write a licence number into a date column.
+		k.FSSAIExpiry,
 	)
 	if err != nil {
 		return apperr.Internal(fmt.Errorf("catalog: update kitchen %s: %w", k.ID, err))
@@ -285,7 +290,7 @@ func scanKitchen(row scanner) (*domain.Kitchen, error) {
 		&k.AddressLine1, &k.City, &k.Pincode, &k.Latitude, &k.Longitude, &k.DeliveryRadiusM,
 		&k.IsActive, &k.IsAcceptingOrders, &k.PauseReason,
 		&k.CommissionBps, &packagingFee, &minOrder, &costForTwo, &k.AvgPrepMinutes,
-		&ratingAvg, &k.RatingCount, &k.FSSAILicense, &k.GSTIN,
+		&ratingAvg, &k.RatingCount, &k.FSSAILicense, &k.FSSAIExpiry, &k.GSTIN,
 		&k.IsFirstParty, &k.Version, &k.CreatedAt, &k.UpdatedAt,
 	); err != nil {
 		return nil, err
@@ -308,3 +313,36 @@ func timeToDuration(t time.Time) time.Duration {
 }
 
 var _ domain.KitchenRepository = (*KitchenRepository)(nil)
+
+/*
+AssistedIDs lists active kitchens whose merchant operates in assisted mode.
+
+Joins to merchants because operating_mode is a property of the VENDOR, not the
+outlet: a man's ability to use a dashboard does not vary by which cart he is
+standing behind. Restricted to active kitchens, since a deactivated outlet's
+orders are not something ops should be asked to action.
+*/
+func (r *KitchenRepository) AssistedIDs(ctx context.Context) ([]id.ID, error) {
+	const q = `
+		SELECT k.id
+		FROM kitchens k
+		JOIN merchants m ON m.id = k.merchant_id
+		WHERE m.operating_mode = 'assisted' AND k.is_active
+		ORDER BY k.id`
+
+	rows, err := r.db.Q(ctx).Query(ctx, q)
+	if err != nil {
+		return nil, apperr.Internal(fmt.Errorf("catalog: list assisted kitchens: %w", err))
+	}
+	defer rows.Close()
+
+	var out []id.ID
+	for rows.Next() {
+		var kitchenID id.ID
+		if err := rows.Scan(&kitchenID); err != nil {
+			return nil, apperr.Internal(fmt.Errorf("catalog: scan assisted kitchen: %w", err))
+		}
+		out = append(out, kitchenID)
+	}
+	return out, rows.Err()
+}

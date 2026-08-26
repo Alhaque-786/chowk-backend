@@ -378,6 +378,9 @@ type OrderRepository interface {
 	FindByIDForUpdate(ctx context.Context, orderID id.ID) (*Order, error)
 	ListForUser(ctx context.Context, userID id.ID, filter Filter, page paging.Request) ([]*Order, error)
 	ListForKitchen(ctx context.Context, kitchenID id.ID, filter Filter, page paging.Request) ([]*Order, error)
+	// ListForKitchens spans several outlets, for the ops queue that actions orders
+	// on behalf of vendors who have no dashboard of their own.
+	ListForKitchens(ctx context.Context, kitchenIDs []id.ID, filter Filter, page paging.Request) ([]*Order, error)
 	AppendStatusEvent(ctx context.Context, e StatusEvent) error
 	ListStatusEvents(ctx context.Context, orderID id.ID) ([]StatusEvent, error)
 	// CountActiveForUser backs the "you have too many open orders" fraud check.

@@ -57,6 +57,23 @@ type PriceQuoter interface {
 // open hours, manual pause, and whether it delivers to the given point.
 type KitchenAvailability interface {
 	IsAcceptingOrders(ctx context.Context, kitchenID id.ID) (bool, string, error)
+	/*
+		AssistedKitchenIDs lists outlets whose orders NOBODY ON THE MERCHANT SIDE
+		WILL EVER SEE.
+
+		An assisted vendor — the archetype is a cart selling fresh nariyal pani —
+		has no dashboard, no app and no intention of acquiring either. His orders
+		would sit at `placed` until they timed out, so our ops queue has to find
+		them, and ordering cannot join `merchants` without breaking the module
+		boundary.
+
+		Returns ids rather than taking a filter because the set is SMALL and changes
+		rarely (a merchant's operating mode is an onboarding decision, not a runtime
+		one), which makes it cheap to cache and cheap to reason about. A filter
+		pushed into catalog would put ordering's query semantics inside another
+		module.
+	*/
+	AssistedKitchenIDs(ctx context.Context) ([]id.ID, error)
 	ServesLocation(ctx context.Context, kitchenID id.ID, lat, lng float64) (bool, error)
 	// Name is needed so ordering can snapshot it onto the events it publishes.
 	// Cheap because catalog caches the kitchen, and it keeps consumers from

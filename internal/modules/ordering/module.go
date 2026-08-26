@@ -94,6 +94,10 @@ func (m *Module) CustomerRoutes() http.Handler { return m.handler.CustomerRoutes
 // KitchenRoutes: the staff queue and status transitions.
 func (m *Module) KitchenRoutes() http.Handler { return m.handler.KitchenRoutes() }
 
+// OpsRoutes are the staff-on-behalf-of-vendor actions for assisted merchants.
+// Mounted behind RolePlatformAdmin in the composition root.
+func (m *Module) OpsRoutes() http.Handler { return m.handler.OpsRoutes() }
+
 // RegisterSubscribers wires ordering's event handlers.
 //
 // Ordering consumes payment events to advance an order past pending_payment. It

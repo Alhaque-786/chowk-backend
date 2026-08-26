@@ -381,8 +381,30 @@ func (r *OrderRepository) ListForUser(ctx context.Context, userID id.ID, filter 
 // ListForKitchen backs the staff queue. Oldest first so the queue is FIFO — a
 // kitchen works through orders in the sequence they arrived.
 func (r *OrderRepository) ListForKitchen(ctx context.Context, kitchenID id.ID, filter domain.Filter, page paging.Request) ([]*domain.Order, error) {
-	args := []any{kitchenID}
-	conds := []string{"kitchen_id = $1"}
+	return r.ListForKitchens(ctx, []id.ID{kitchenID}, filter, page)
+}
+
+/*
+ListForKitchens lists orders across several outlets in one query.
+
+The ops queue needs this: assisted vendors have no dashboard, so their orders have
+to be gathered from every such outlet at once. Calling the single-kitchen version
+in a loop would be an N+1 across an unbounded set.
+
+The singular form delegates here rather than the two sharing copied SQL, for the
+same reason loadLinesQuery is one constant: a column added to `orders` must not be
+picked up by one path and missed by the other.
+*/
+func (r *OrderRepository) ListForKitchens(ctx context.Context, kitchenIDs []id.ID, filter domain.Filter, page paging.Request) ([]*domain.Order, error) {
+	if len(kitchenIDs) == 0 {
+		// No assisted vendors onboarded yet is the normal early state, and an empty
+		// ANY($1) would match nothing anyway — returning here saves the round trip
+		// and makes the intent obvious at the call site.
+		return nil, nil
+	}
+
+	args := []any{kitchenIDs}
+	conds := []string{"kitchen_id = ANY($1)"}
 
 	if len(filter.Statuses) > 0 {
 		args = append(args, statusStrings(filter.Statuses))

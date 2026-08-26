@@ -68,6 +68,38 @@ func (s *KitchenOrderService) Queue(ctx context.Context, kitchenID id.ID) ([]*do
 	}, page)
 }
 
+/*
+OpsQueue lists orders waiting on an outlet that cannot action them itself.
+
+WHY THIS EXISTS. An assisted vendor — a cart selling fresh nariyal pani is the
+archetype — has no dashboard and never logs in. His orders would sit at `placed`
+until the reaper cancelled them, and the customer would be told the kitchen never
+responded. Somebody on our side has to see them.
+
+Deliberately NOT scoped to one kitchen, which is what makes it different from
+Queue: an ops agent works across every assisted vendor at once, in arrival order,
+because the thing being optimised is the phone call queue rather than one kitchen's
+pass.
+
+Only the statuses a vendor still owes an action on. Once an order reaches
+`preparing` the agent's job is done until pickup, and showing it would bury the
+ones that need a call.
+*/
+func (s *KitchenOrderService) OpsQueue(ctx context.Context) ([]*domain.Order, error) {
+	kitchenIDs, err := s.kitchens.AssistedKitchenIDs(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	page, err := paging.NewRequest("", 200, paging.Ascending)
+	if err != nil {
+		return nil, err
+	}
+	return s.orders.ListForKitchens(ctx, kitchenIDs, domain.Filter{
+		Statuses: []domain.Status{domain.StatusPlaced, domain.StatusConfirmed},
+	}, page)
+}
+
 type TransitionInput struct {
 	OrderID    id.ID
 	KitchenID  id.ID
@@ -75,6 +107,25 @@ type TransitionInput struct {
 	Reason     string
 	ActorID    id.ID
 	ActorRole  string
+
+	/*
+		PlatformActor lifts the tenant guard, so the caller may act on any kitchen's
+		order. Set ONLY for a platform admin, and it exists because of assisted
+		vendors: a man selling nariyal pani from a cart has no dashboard and never
+		logs in, so somebody on our side accepts for him.
+
+		A BOOLEAN RATHER THAN A NIL KitchenID, deliberately. The obvious alternative
+		— treat KitchenID == id.Nil as "platform-wide" — makes the ZERO VALUE of this
+		struct bypass a security check. Any future code path that builds a
+		TransitionInput and forgets to set KitchenID would silently acquire
+		cross-tenant authority. This way the unsafe state has to be typed out.
+
+		The audit trail still records who acted: ActorRole carries platform_admin, so
+		"our agent confirmed this" and "the vendor confirmed this" remain
+		distinguishable facts. They are not the same promise — an agent confirming
+		means he believes the vendor will make it.
+	*/
+	PlatformActor bool
 }
 
 // Transition moves an order to its next status.
@@ -100,8 +151,9 @@ func (s *KitchenOrderService) Transition(ctx context.Context, in TransitionInput
 			return err
 		}
 		// Tenant guard: staff at one kitchen must not be able to touch another
-		// kitchen's order by passing its id.
-		if locked.KitchenID != in.KitchenID {
+		// kitchen's order by passing its id. A platform admin is exempt — see
+		// PlatformActor, which has to be set explicitly for exactly this reason.
+		if !in.PlatformActor && locked.KitchenID != in.KitchenID {
 			return apperr.NotFound("ORDER_NOT_FOUND", "That order could not be found.")
 		}
 

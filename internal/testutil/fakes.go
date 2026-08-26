@@ -77,6 +77,7 @@ type FakeKitchenAvailability struct {
 	Reason      string
 	Serves      bool
 	KitchenName string
+	assisted    []id.ID
 }
 
 func NewFakeKitchenAvailability() *FakeKitchenAvailability {
@@ -89,6 +90,13 @@ func (f *FakeKitchenAvailability) Name(context.Context, id.ID) (string, error) {
 
 func (f *FakeKitchenAvailability) IsAcceptingOrders(context.Context, id.ID) (bool, string, error) {
 	return f.Accepting, f.Reason, nil
+}
+
+// Assisted lets a test declare which kitchens have no dashboard of their own.
+func (f *FakeKitchenAvailability) SetAssisted(ids ...id.ID) { f.assisted = ids }
+
+func (f *FakeKitchenAvailability) AssistedKitchenIDs(context.Context) ([]id.ID, error) {
+	return f.assisted, nil
 }
 
 func (f *FakeKitchenAvailability) ServesLocation(context.Context, id.ID, float64, float64) (bool, error) {

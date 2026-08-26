@@ -53,6 +53,32 @@ func (h *Handler) KitchenRoutes() http.Handler {
 	return r
 }
 
+/*
+OpsRoutes are the same actions, taken by our own staff on a vendor's behalf.
+
+MOUNTED SEPARATELY rather than relaxing the kitchen routes, and the reason is the
+tenant guard. KitchenRoutes refuses a caller with no kitchen scope, and that same
+check is what stops kitchen A touching kitchen B's order. Making it conditional on
+the caller's role would put a security decision inside a hot path where a future
+edit could invert it. Two mounts, two authority models, neither one able to drift
+into the other.
+
+The audit trail distinguishes them for free: actor_role is snapshotted onto every
+status event, so "the vendor confirmed" and "our agent confirmed for him" stay
+separate facts. They are not the same promise.
+*/
+func (h *Handler) OpsRoutes() http.Handler {
+	r := chi.NewRouter()
+	r.Get("/queue", h.OpsQueue)
+	r.Post("/orders/{orderID}/accept", h.opsTransitionTo(domain.StatusConfirmed))
+	r.Post("/orders/{orderID}/start", h.opsTransitionTo(domain.StatusPreparing))
+	r.Post("/orders/{orderID}/ready", h.opsTransitionTo(domain.StatusReady))
+	r.Post("/orders/{orderID}/handover", h.opsTransitionTo(domain.StatusPickedUp))
+	r.Post("/orders/{orderID}/delivered", h.opsTransitionTo(domain.StatusDelivered))
+	r.Post("/orders/{orderID}/reject", h.opsTransitionTo(domain.StatusRejected))
+	return r
+}
+
 // ---------------------------------------------------------------------------
 // DTOs
 // ---------------------------------------------------------------------------
@@ -550,6 +576,68 @@ type transitionRequest struct {
 //
 // A closure rather than six near-identical handlers: the only thing that varies
 // is the target status, and the domain state machine already owns legality.
+// OpsQueue lists every assisted vendor's outstanding orders, in arrival order.
+func (h *Handler) OpsQueue(w http.ResponseWriter, r *http.Request) {
+	orders, err := h.kitchen.OpsQueue(r.Context())
+	if err != nil {
+		httpx.Error(w, r, err)
+		return
+	}
+	out := make([]orderResponse, 0, len(orders))
+	for _, o := range orders {
+		out = append(out, toOrderResponse(o))
+	}
+	httpx.JSON(w, http.StatusOK, map[string]any{"orders": out})
+}
+
+/*
+opsTransitionTo performs a staff transition with platform-wide authority.
+
+No kitchen-scope check, because the caller has none by design — this route is
+mounted behind RolePlatformAdmin and the kitchen is derived from the order rather
+than trusted from the request. An agent cannot name a kitchen and act on it; he
+names an ORDER, and the order says which kitchen it belongs to.
+*/
+func (h *Handler) opsTransitionTo(next domain.Status) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		p, err := httpx.MustPrincipal(r.Context())
+		if err != nil {
+			httpx.Error(w, r, err)
+			return
+		}
+		orderID, err := id.Parse(chi.URLParam(r, "orderID"))
+		if err != nil {
+			httpx.Error(w, r, apperr.Invalid("INVALID_ID", "That order id is not valid."))
+			return
+		}
+
+		var req transitionRequest
+		_ = httpx.Decode(r, &req)
+		if next == domain.StatusRejected && req.Reason == "" {
+			httpx.Error(w, r, apperr.Invalid("REASON_REQUIRED",
+				"A rejection needs a reason.").WithField("reason", "required"))
+			return
+		}
+
+		order, err := h.kitchen.Transition(r.Context(), app.TransitionInput{
+			OrderID:    orderID,
+			NextStatus: next,
+			Reason:     req.Reason,
+			ActorID:    p.UserID,
+			// Snapshotted, so the trail shows this was OUR staff rather than the
+			// vendor. The distinction matters if anybody later asks who promised
+			// that the food would be made.
+			ActorRole:     string(httpx.RolePlatformAdmin),
+			PlatformActor: true,
+		})
+		if err != nil {
+			httpx.Error(w, r, err)
+			return
+		}
+		httpx.JSON(w, http.StatusOK, toOrderResponse(order))
+	}
+}
+
 func (h *Handler) transitionTo(next domain.Status) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		p, err := httpx.MustPrincipal(r.Context())

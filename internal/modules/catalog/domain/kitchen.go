@@ -70,6 +70,12 @@ type Kitchen struct {
 	FSSAILicense string
 	GSTIN        string
 
+	// FSSAIExpiry is copied from the owning merchant so this rule can be a pure
+	// domain function. NULL/zero means "we cannot state this outlet's licence
+	// status", which blocks a marketplace kitchen and is tolerated for
+	// first-party — see CanAcceptOrder.
+	FSSAIExpiry *time.Time
+
 	IsFirstParty bool
 	Version      int32
 	CreatedAt    time.Time
@@ -105,6 +111,11 @@ const (
 	ReasonPaused       ClosedReason = "kitchen_paused"
 	ReasonOutsideHours ClosedReason = "outside_opening_hours"
 	ReasonNoHoursSet   ClosedReason = "no_hours_configured"
+	// ReasonFSSAILapsed covers both an expired licence and one we have no record
+	// of. Deliberately the same reason: from a compliance standpoint "expired" and
+	// "unknown" are the same position — we cannot show that this outlet is
+	// permitted to sell food.
+	ReasonFSSAILapsed ClosedReason = "fssai_lapsed"
 )
 
 // CustomerMessage renders a reason as something worth showing a customer.
@@ -117,6 +128,11 @@ func (r ClosedReason) CustomerMessage(kitchenName string) string {
 		return kitchenName + " is not taking orders at the moment. Please try again shortly."
 	case ReasonOutsideHours, ReasonNoHoursSet:
 		return kitchenName + " is closed right now."
+	case ReasonFSSAILapsed:
+		// Deliberately says nothing about licences. A customer cannot act on our
+		// compliance problem, and publishing "their FSSAI expired" is a
+		// defamatory-sounding claim about a merchant on a public menu page.
+		return kitchenName + " is not available right now."
 	default:
 		return kitchenName + " is unavailable."
 	}
@@ -143,7 +159,46 @@ func (k *Kitchen) CanAcceptOrder(now time.Time) (bool, ClosedReason) {
 	if !k.IsOpenAt(now) {
 		return false, ReasonOutsideHours
 	}
+	if !k.hasValidFSSAI(now) {
+		return false, ReasonFSSAILapsed
+	}
 	return true, ReasonOpen
+}
+
+/*
+hasValidFSSAI enforces the food licence, which until now was stored and never
+checked.
+
+Migration 0006 added an index on merchants.fssai_expiry with the comment "An
+expired FSSAI means the outlet must stop selling immediately", and no code ever
+read the column. The control existed as a claim.
+
+CHECKED LAST, on purpose. It is the least likely reason a kitchen is unavailable
+and the least useful thing to tell a customer, so the earlier switches win when
+several apply — somebody browsing at 3am should be told the kitchen is closed, not
+handed a compliance message.
+
+A MISSING EXPIRY BLOCKS A MARKETPLACE KITCHEN. "We have no record" and "it
+expired" are the same position when a regulator asks, and defaulting to allow is
+how an unonboarded outlet starts selling. First-party is exempt because it is our
+own licence and its absence is a data-entry gap in our own records rather than an
+unverified third party.
+
+Dates, not timestamps: an FSSAI expires on a calendar day, and comparing against a
+wall-clock instant would stop sales at midnight UTC — 05:30 IST, mid-morning
+prep — rather than at the end of the day it actually lapses.
+*/
+func (k *Kitchen) hasValidFSSAI(now time.Time) bool {
+	if k.IsFirstParty {
+		return true
+	}
+	if k.FSSAIExpiry == nil {
+		return false
+	}
+	today := now.In(clock.IST)
+	expiry := *k.FSSAIExpiry
+	// Valid THROUGH the expiry date, so a licence expiring today still sells today.
+	return !expiry.Before(time.Date(today.Year(), today.Month(), today.Day(), 0, 0, 0, 0, expiry.Location()))
 }
 
 // IsOpenAt checks the schedule.
@@ -260,6 +315,9 @@ func (k *Kitchen) Validate() error {
 // ---------------------------------------------------------------------------
 
 type KitchenRepository interface {
+	// AssistedIDs lists active outlets whose merchant cannot take orders itself.
+	// See contracts.KitchenAvailability for why ordering needs this.
+	AssistedIDs(ctx context.Context) ([]id.ID, error)
 	Create(ctx context.Context, k *Kitchen) error
 	// Update uses optimistic locking: it must fail with a conflict if the
 	// caller's Version is stale, so two admins editing the same kitchen cannot

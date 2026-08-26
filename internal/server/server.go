@@ -373,6 +373,15 @@ func (s *Server) routes(tokens *token.Manager, limiter *ratelimit.Limiter) http.
 			r.Use(httpx.Authenticate(tokens))
 			r.Use(httpx.RequireRole(httpx.RolePlatformAdmin))
 			r.Get("/admin/events", s.handleListEventHandlers)
+			/*
+				The ops console for assisted vendors.
+				A vendor with no dashboard — a cart selling fresh nariyal pani is the
+				case this exists for — never sees his orders, so our staff action them
+				here. Mounted under /admin because that is where the authority lives:
+				this subtree already requires RolePlatformAdmin, and these routes
+				deliberately have no kitchen scope.
+			*/
+			r.Mount("/admin/ops", s.ordering.OpsRoutes())
 			r.Mount("/admin/coupons", s.promotion.AdminRoutes())
 		})
 	})
