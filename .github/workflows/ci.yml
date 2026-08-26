@@ -48,6 +48,13 @@ jobs:
       - name: Check module boundaries
         run: make check-boundaries
 
+      # ADDED because it had never run here. The soft-delete guard existed only in
+      # `make check`, so a hard delete could reach main as long as nobody ran the
+      # local target — which is precisely the situation the guard was written to
+      # prevent. Both architecture checks now gate the same way.
+      - name: Check soft-delete policy
+        run: make check-soft-delete
+
       - name: Verify go.mod is tidy
         run: |
           go mod tidy

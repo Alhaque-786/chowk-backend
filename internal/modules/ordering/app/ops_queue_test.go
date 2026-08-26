@@ -4,7 +4,6 @@ import (
 	"context"
 	"testing"
 
-	catalogpg "github.com/zevoxa/chowk-backend/internal/modules/catalog/adapter/postgres"
 	orderingpg "github.com/zevoxa/chowk-backend/internal/modules/ordering/adapter/postgres"
 	"github.com/zevoxa/chowk-backend/internal/modules/ordering/app"
 	"github.com/zevoxa/chowk-backend/internal/modules/ordering/domain"
@@ -29,34 +28,26 @@ that would catch a cross-tenant hole.
 */
 
 /*
-realAssisted answers AssistedKitchenIDs from the DATABASE rather than a fake.
+newOpsService wires the service with a FAKE availability port.
 
-Everything else about kitchen availability is faked, because these tests are not
-about opening hours. But "which vendors cannot take orders themselves" is a SQL
-join across merchants, and faking it would leave the one new query in this change
-untested — the join is the part that can be wrong.
+Ordering must not import catalog — the boundary checker enforces it, and it caught
+the first version of this file doing exactly that to reach the real SQL. The
+correction is the better design: which vendors are assisted is CATALOG's question,
+verified against the database in catalog/adapter/postgres/assisted_test.go, and
+from ordering's side the contract is the boundary. Testing through the fake is
+therefore not a compromise; it is the unit under test.
 */
-type realAssisted struct {
-	*testutil.FakeKitchenAvailability
-	repo *catalogpg.KitchenRepository
-}
-
-func (r realAssisted) AssistedKitchenIDs(ctx context.Context) ([]id.ID, error) {
-	return r.repo.AssistedIDs(ctx)
-}
-
-func newOpsService(t *testing.T, db *database.DB) *app.KitchenOrderService {
+func newOpsService(t *testing.T, db *database.DB, assisted ...id.ID) *app.KitchenOrderService {
 	t.Helper()
+	kitchens := testutil.NewFakeKitchenAvailability()
+	kitchens.SetAssisted(assisted...)
 	return app.NewKitchenOrderService(
 		db,
 		orderingpg.NewOrderRepository(db),
 		testutil.NewFakeStockReserver(),
 		&testutil.FakeRiderDispatcher{},
 		testutil.NewFakePaymentInitiator(),
-		realAssisted{
-			FakeKitchenAvailability: testutil.NewFakeKitchenAvailability(),
-			repo:                    catalogpg.NewKitchenRepository(db),
-		},
+		kitchens,
 		testutil.NewRecordingPublisher(),
 		clock.System{},
 	)
@@ -92,7 +83,7 @@ func TestOpsQueueFindsOnlyAssistedVendorsOrders(t *testing.T) {
 	testutil.Order(t, db, user, selfServe,
 		testutil.OrderOpts{Status: string(domain.StatusPlaced), TotalMinor: 9000})
 
-	svc := newOpsService(t, db)
+	svc := newOpsService(t, db, assisted)
 	queue, err := svc.OpsQueue(ctx)
 	if err != nil {
 		t.Fatalf("ops queue: %v", err)
@@ -131,7 +122,7 @@ func TestOpsQueueShowsOnlyOrdersStillOwedAnAction(t *testing.T) {
 	needsAction := testutil.Order(t, db, user, assisted,
 		testutil.OrderOpts{Status: string(domain.StatusPlaced), TotalMinor: 4000})
 
-	queue, err := newOpsService(t, db).OpsQueue(ctx)
+	queue, err := newOpsService(t, db, assisted).OpsQueue(ctx)
 	if err != nil {
 		t.Fatalf("ops queue: %v", err)
 	}
@@ -171,7 +162,7 @@ func TestPlatformActorMayActOnAnyKitchensOrder(t *testing.T) {
 		testutil.OrderOpts{Status: string(domain.StatusPlaced), TotalMinor: 4000})
 
 	agent := testutil.User(t, db) // our ops staff member
-	svc := newOpsService(t, db)
+	svc := newOpsService(t, db, assisted)
 	// No KitchenID at all — an admin has none, which is the whole point.
 	order, err := svc.Transition(ctx, transitionInput(orderID, agent, domain.StatusConfirmed, true))
 	if err != nil {

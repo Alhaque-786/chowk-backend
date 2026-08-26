@@ -133,12 +133,16 @@ check-soft-delete: ## Fail if a business table is hard-deleted
 	# damage is invisible until somebody asks a question about the past.
 	#
 	# Test files are excluded: a test that leaves rows behind pollutes the shared
-	# development database, which is a bug of its own. See migration 0014 for why
+	# development database, which is a bug of its own. internal/testutil is
+	# excluded for the SAME reason and was missed at first — it is test-only code
+	# whose entire job is that cleanup, so the guard was flagging the thing its own
+	# rationale asks for. See migration 0014 for why
 	# each allowlisted table is exempt.
 	@echo "checking soft-delete policy..."
 	@allowed='idempotency_keys|sessions|kitchen_hours'; \
 	found=$$(grep -rn "DELETE FROM" --include="*.go" internal/ cmd/ \
 		| grep -v "_test.go" \
+		| grep -v "^internal/testutil/" \
 		| grep -vE "DELETE FROM ($$allowed)" || true); \
 	if [ -n "$$found" ]; then \
 		echo "  VIOLATION: hard delete of a business record"; \
