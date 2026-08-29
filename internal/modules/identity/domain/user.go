@@ -22,6 +22,7 @@ import (
 	"github.com/zevoxa/chowk-backend/internal/shared/apperr"
 	"github.com/zevoxa/chowk-backend/internal/shared/id"
 	"github.com/zevoxa/chowk-backend/internal/shared/paging"
+	"github.com/zevoxa/chowk-backend/internal/shared/phone"
 )
 
 // UserStatus is the account lifecycle state.
@@ -46,7 +47,7 @@ const (
 // optional and used for receipts.
 type User struct {
 	ID           id.ID
-	Phone        Phone
+	Phone        phone.Phone
 	Email        string
 	FullName     string
 	PasswordHash string // empty for OTP-only accounts, which is a valid state
@@ -125,72 +126,6 @@ func (u *User) IsStaff() bool {
 		}
 	}
 	return false
-}
-
-// ---------------------------------------------------------------------------
-// Phone -- a value object, not a string
-// ---------------------------------------------------------------------------
-
-// Phone is a validated E.164 phone number.
-//
-// Making this a distinct type rather than a string means an unvalidated number
-// cannot reach the database: the only way to obtain a Phone is through
-// NewPhone, which normalises and validates. It also removes a whole class of
-// duplicate-account bug where "9876543210", "+919876543210" and "09876543210"
-// register as three different users.
-type Phone string
-
-// indianMobile matches a 10-digit Indian mobile number. The leading digit must
-// be 6-9; 0-5 are landline or invalid ranges.
-var indianMobile = regexp.MustCompile(`^[6-9]\d{9}$`)
-
-// NewPhone normalises a user-entered number to E.164 (+91XXXXXXXXXX).
-func NewPhone(raw string) (Phone, error) {
-	// Strip everything a human might type: spaces, dashes, brackets, dots.
-	cleaned := strings.Map(func(r rune) rune {
-		if r >= '0' && r <= '9' {
-			return r
-		}
-		if r == '+' {
-			return r
-		}
-		return -1
-	}, raw)
-
-	// Country-code stripping MUST be length-aware. Stripping a leading "91"
-	// unconditionally corrupts "9123456780" -- a perfectly valid mobile that
-	// merely starts with 91 -- into an 8-digit number, silently locking a real
-	// slice of customers out of signup. Only remove a prefix when what remains is
-	// exactly the 10 digits of a national number.
-	switch {
-	case strings.HasPrefix(cleaned, "+91") && len(cleaned) == 13:
-		cleaned = cleaned[3:]
-	case strings.HasPrefix(cleaned, "91") && len(cleaned) == 12:
-		cleaned = cleaned[2:]
-	case strings.HasPrefix(cleaned, "0") && len(cleaned) == 11:
-		cleaned = cleaned[1:]
-	}
-
-	if !indianMobile.MatchString(cleaned) {
-		return "", apperr.Invalid("INVALID_PHONE", "Enter a valid 10-digit Indian mobile number.").
-			WithField("phone", "invalid_format")
-	}
-	return Phone("+91" + cleaned), nil
-}
-
-func (p Phone) String() string { return string(p) }
-
-// National renders the number without the country code, for display.
-func (p Phone) National() string { return strings.TrimPrefix(string(p), "+91") }
-
-// Masked renders the number for support UIs and logs, e.g. "+91XXXXXX3210".
-// Logging full phone numbers is a privacy liability.
-func (p Phone) Masked() string {
-	s := string(p)
-	if len(s) < 6 {
-		return "XXXXXX"
-	}
-	return s[:3] + "XXXXXX" + s[len(s)-4:]
 }
 
 // ---------------------------------------------------------------------------
@@ -336,14 +271,14 @@ type UserRepository interface {
 	Create(ctx context.Context, u *User) error
 	Update(ctx context.Context, u *User) error
 	FindByID(ctx context.Context, userID id.ID) (*User, error)
-	FindByPhone(ctx context.Context, phone Phone) (*User, error)
+	FindByPhone(ctx context.Context, p phone.Phone) (*User, error)
 	FindByEmail(ctx context.Context, email string) (*User, error)
 	FindByReferralCode(ctx context.Context, code string) (*User, error)
 	// List is admin-facing; cursor-paginated because the user table is unbounded.
 	List(ctx context.Context, filter UserFilter, page paging.Request) ([]*User, error)
 	// ExistsByPhone is a cheap precheck that avoids hashing a password for a
 	// registration that is going to fail on conflict anyway.
-	ExistsByPhone(ctx context.Context, phone Phone) (bool, error)
+	ExistsByPhone(ctx context.Context, p phone.Phone) (bool, error)
 }
 
 type UserFilter struct {

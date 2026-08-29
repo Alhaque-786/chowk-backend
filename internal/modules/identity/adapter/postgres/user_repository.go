@@ -17,6 +17,7 @@ import (
 	"github.com/zevoxa/chowk-backend/internal/shared/apperr"
 	"github.com/zevoxa/chowk-backend/internal/shared/id"
 	"github.com/zevoxa/chowk-backend/internal/shared/paging"
+	"github.com/zevoxa/chowk-backend/internal/shared/phone"
 )
 
 type UserRepository struct {
@@ -92,9 +93,9 @@ func (r *UserRepository) FindByID(ctx context.Context, userID id.ID) (*domain.Us
 	return r.scanOne(ctx, q, userID)
 }
 
-func (r *UserRepository) FindByPhone(ctx context.Context, phone domain.Phone) (*domain.User, error) {
+func (r *UserRepository) FindByPhone(ctx context.Context, p phone.Phone) (*domain.User, error) {
 	q := `SELECT ` + userColumns + ` FROM users WHERE phone = $1 AND status <> 'deleted'`
-	return r.scanOne(ctx, q, string(phone))
+	return r.scanOne(ctx, q, string(p))
 }
 
 func (r *UserRepository) FindByEmail(ctx context.Context, email string) (*domain.User, error) {
@@ -107,10 +108,10 @@ func (r *UserRepository) FindByReferralCode(ctx context.Context, code string) (*
 	return r.scanOne(ctx, q, strings.ToUpper(code))
 }
 
-func (r *UserRepository) ExistsByPhone(ctx context.Context, phone domain.Phone) (bool, error) {
+func (r *UserRepository) ExistsByPhone(ctx context.Context, p phone.Phone) (bool, error) {
 	const q = `SELECT EXISTS(SELECT 1 FROM users WHERE phone = $1 AND status <> 'deleted')`
 	var exists bool
-	if err := r.db.Q(ctx).QueryRow(ctx, q, string(phone)).Scan(&exists); err != nil {
+	if err := r.db.Q(ctx).QueryRow(ctx, q, string(p)).Scan(&exists); err != nil {
 		return false, apperr.Internal(fmt.Errorf("identity: exists by phone: %w", err))
 	}
 	return exists, nil
@@ -191,7 +192,7 @@ type scanner interface {
 func scanUser(row scanner) (*domain.User, error) {
 	var (
 		u          domain.User
-		phone      string
+		rawPhone   string
 		email      *string
 		pwHash     *string
 		status     string
@@ -201,14 +202,14 @@ func scanUser(row scanner) (*domain.User, error) {
 	)
 
 	if err := row.Scan(
-		&u.ID, &phone, &email, &u.FullName, &pwHash, &status, &roles, &kitchenID,
+		&u.ID, &rawPhone, &email, &u.FullName, &pwHash, &status, &roles, &kitchenID,
 		&u.PhoneVerifiedAt, &u.EmailVerifiedAt, &u.LastLoginAt,
 		&u.ReferralCode, &referredBy, &u.CreatedAt, &u.UpdatedAt,
 	); err != nil {
 		return nil, err
 	}
 
-	u.Phone = domain.Phone(phone)
+	u.Phone = phone.Phone(rawPhone)
 	u.Status = domain.UserStatus(status)
 	u.Email = derefString(email)
 	u.PasswordHash = derefString(pwHash)

@@ -79,6 +79,18 @@ var publicRoutes = map[string]string{
 	"/api/v1/offers":  "offers are advertising; visible before signup",
 	"/api/v1/offers/": "offers are advertising; visible before signup",
 
+	// Both forms, for the reason spelled out above the offers entries.
+	//
+	// The justification is worth stating rather than assuming: the person best
+	// placed to refer a nariyal pani cart is the customer who walks past it every
+	// morning, and requiring an account first would lose most of the leads this
+	// endpoint exists to collect. It runs under OptionalAuth, so a signed-in
+	// submitter is still attributed. Nothing it accepts is trusted -- every field
+	// is validated in the domain and again by a database CHECK -- and abuse is the
+	// rate limiter's problem, which already covers this subtree.
+	"/api/v1/vendor-leads":  "referring a vendor must not require an account",
+	"/api/v1/vendor-leads/": "referring a vendor must not require an account",
+
 	"/api/v1/webhooks/payment":  "authenticated by HMAC signature; a gateway has no bearer token",
 	"/api/v1/webhooks/delivery": "authenticated by HMAC signature; a 3PL has no bearer token",
 }

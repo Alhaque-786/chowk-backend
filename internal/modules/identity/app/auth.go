@@ -26,6 +26,7 @@ import (
 	"github.com/zevoxa/chowk-backend/internal/shared/apperr"
 	"github.com/zevoxa/chowk-backend/internal/shared/clock"
 	"github.com/zevoxa/chowk-backend/internal/shared/id"
+	"github.com/zevoxa/chowk-backend/internal/shared/phone"
 )
 
 // AuthService implements registration, login, token refresh and logout.
@@ -103,7 +104,7 @@ type AuthResult struct {
 // Verifying up front would cost us the signup; verifying never would let anyone
 // order to a stranger's number.
 func (s *AuthService) Register(ctx context.Context, in RegisterInput) (*AuthResult, error) {
-	phone, err := domain.NewPhone(in.Phone)
+	phone, err := phone.New(in.Phone)
 	if err != nil {
 		return nil, err
 	}
@@ -205,7 +206,7 @@ type LoginInput struct {
 // comparable CPU, so an attacker cannot use the response to learn which phone
 // numbers are registered.
 func (s *AuthService) Login(ctx context.Context, in LoginInput) (*AuthResult, error) {
-	phone, err := domain.NewPhone(in.Phone)
+	phone, err := phone.New(in.Phone)
 	if err != nil {
 		// Not a validation error to the caller: revealing "that is not a valid
 		// number" vs "wrong password" is fine, but keeping one message is simpler
@@ -406,11 +407,11 @@ type otpRecord struct {
 	Purpose  string `json:"purpose"`
 }
 
-func otpKey(phone domain.Phone, purpose string) string {
+func otpKey(phone phone.Phone, purpose string) string {
 	return fmt.Sprintf("otp:%s:%s", purpose, phone)
 }
 
-func otpThrottleKey(phone domain.Phone) string {
+func otpThrottleKey(phone phone.Phone) string {
 	return fmt.Sprintf("otp:throttle:%s", phone)
 }
 
@@ -420,7 +421,7 @@ func otpThrottleKey(phone domain.Phone) string {
 // it. Sending is the notification module's job, reached via an event, so identity
 // does not depend on an SMS provider.
 func (s *AuthService) RequestOTP(ctx context.Context, rawPhone, purpose string) (string, error) {
-	phone, err := domain.NewPhone(rawPhone)
+	phone, err := phone.New(rawPhone)
 	if err != nil {
 		return "", err
 	}
@@ -450,7 +451,7 @@ func (s *AuthService) RequestOTP(ctx context.Context, rawPhone, purpose string) 
 // VerifyOTP checks a code and, on success, signs the user in -- creating the
 // account if this is a first-time OTP signup.
 func (s *AuthService) VerifyOTP(ctx context.Context, rawPhone, code, purpose string, device DeviceInfo) (*AuthResult, error) {
-	phone, err := domain.NewPhone(rawPhone)
+	phone, err := phone.New(rawPhone)
 	if err != nil {
 		return nil, err
 	}

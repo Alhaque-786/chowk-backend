@@ -26,6 +26,7 @@ import (
 	"github.com/zevoxa/chowk-backend/internal/modules/ordering"
 	"github.com/zevoxa/chowk-backend/internal/modules/payment"
 	"github.com/zevoxa/chowk-backend/internal/modules/promotion"
+	"github.com/zevoxa/chowk-backend/internal/modules/sourcing"
 	"github.com/zevoxa/chowk-backend/internal/platform/cache"
 	"github.com/zevoxa/chowk-backend/internal/platform/database"
 	"github.com/zevoxa/chowk-backend/internal/platform/eventbus"
@@ -62,6 +63,7 @@ type Server struct {
 	delivery     *delivery.Module
 	notification *notification.Module
 	promotion    *promotion.Module
+	sourcing     *sourcing.Module
 
 	// idempotency guards write endpoints against client retries.
 	idempotency *database.IdempotencyStore
@@ -214,6 +216,11 @@ func New(ctx context.Context, cfg *config.Config, log *slog.Logger) (*Server, er
 		History: lazyHistory{srv: srv},
 	})
 
+	// Sourcing depends on nothing but the database and the clock. It owns vendor
+	// leads, which are a conversation with somebody who is not a tenant yet, so it
+	// has no contract with any other module and nothing to order it against.
+	srv.sourcing = sourcing.New(sourcing.Deps{DB: db, Clock: clk})
+
 	// Payment before ordering: ordering depends on its PaymentInitiator.
 	srv.payment = payment.New(payment.Deps{
 		Config: cfg, DB: db, Events: outbox, Clock: clk,
@@ -339,6 +346,18 @@ func (s *Server) routes(tokens *token.Manager, limiter *ratelimit.Limiter) http.
 			// promotions must work before signing up. The module applies
 			// Authenticate itself to the one route that needs a user.
 			r.Mount("/offers", s.promotion.CustomerRoutes(httpx.Authenticate(tokens)))
+			/*
+				Vendor leads: unauthenticated on purpose, and mounted here rather than
+				in the customer group for exactly that reason. The person best placed
+				to refer a nariyal pani cart is the customer who walks past it every
+				morning, and they will not create an account first — requiring one
+				would lose most of the leads this endpoint exists to collect.
+
+				OptionalAuth is what makes both true at once: a signed-in submitter is
+				attributed, an anonymous one is still accepted. Abuse is the rate
+				limiter's problem, and RuleGlobal already covers this subtree.
+			*/
+			r.Mount("/vendor-leads", s.sourcing.PublicRoutes())
 		})
 
 		// --- Customer: cart, checkout, orders, addresses ---
@@ -383,6 +402,8 @@ func (s *Server) routes(tokens *token.Manager, limiter *ratelimit.Limiter) http.
 			*/
 			r.Mount("/admin/ops", s.ordering.OpsRoutes())
 			r.Mount("/admin/coupons", s.promotion.AdminRoutes())
+			// The other side of /vendor-leads: the queue our team actually works.
+			r.Mount("/admin/vendor-leads", s.sourcing.AdminRoutes())
 		})
 	})
 

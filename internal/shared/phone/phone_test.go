@@ -1,12 +1,12 @@
-package domain
+package phone
 
 import "testing"
 
-// TestNewPhone pins the normalisation rules. The 91-prefix cases are the reason
+// TestNew pins the normalisation rules. The 91-prefix cases are the reason
 // this test exists: an earlier version stripped a leading "91" unconditionally,
 // which corrupted valid numbers that merely start with 91 into 8-digit garbage
 // and rejected real customers at signup.
-func TestNewPhone(t *testing.T) {
+func TestNew(t *testing.T) {
 	tests := []struct {
 		name  string
 		input string
@@ -40,19 +40,19 @@ func TestNewPhone(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := NewPhone(tt.input)
+			got, err := New(tt.input)
 
 			if !tt.valid {
 				if err == nil {
-					t.Fatalf("NewPhone(%q) = %q, want error", tt.input, got)
+					t.Fatalf("New(%q) = %q, want error", tt.input, got)
 				}
 				return
 			}
 			if err != nil {
-				t.Fatalf("NewPhone(%q) returned error: %v", tt.input, err)
+				t.Fatalf("New(%q) returned error: %v", tt.input, err)
 			}
 			if got != tt.want {
-				t.Errorf("NewPhone(%q) = %q, want %q", tt.input, got, tt.want)
+				t.Errorf("New(%q) = %q, want %q", tt.input, got, tt.want)
 			}
 		})
 	}
