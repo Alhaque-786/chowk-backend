@@ -221,7 +221,16 @@ type PaymentIntent struct {
 	ProviderRef string
 	// ClientSecret is handed to the frontend SDK to complete the payment. It is
 	// never logged.
-	ClientSecret   string
+	ClientSecret string
+	// Provider names the gateway that opened this intent, so the client knows
+	// which SDK to hand ClientSecret to.
+	//
+	// Sent rather than assumed because the provider is expected to multiply --
+	// Cashfree and PhonePe are plausible additions, and a marketplace may end up
+	// choosing per merchant or failing over to a second gateway. A client that
+	// hard-codes one provider silently breaks the day a second appears, and the
+	// breakage is at the payment step of somebody's order.
+	Provider       string
 	Status         string
 	RequiresAction bool
 }

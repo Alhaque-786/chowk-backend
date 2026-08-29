@@ -222,11 +222,18 @@ func New(ctx context.Context, cfg *config.Config, log *slog.Logger) (*Server, er
 	srv.sourcing = sourcing.New(sourcing.Deps{DB: db, Clock: clk})
 
 	// Payment before ordering: ordering depends on its PaymentInitiator.
-	srv.payment = payment.New(payment.Deps{
+	// Fails the boot rather than falling back: an unknown PAYMENT_PROVIDER, or a
+	// production environment missing gateway credentials, is a server that must
+	// not start. Taking orders it cannot collect payment for is worse than not
+	// starting at all.
+	srv.payment, err = payment.New(payment.Deps{
 		Config: cfg, DB: db, Events: outbox, Clock: clk,
 		Users:  srv.identity.UserDirectory(),
 		Guards: guards,
 	})
+	if err != nil {
+		return nil, err
+	}
 
 	// Ordering is built last because it depends on every other module's contract.
 	//

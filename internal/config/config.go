@@ -213,6 +213,9 @@ func Load() (*Config, error) {
 		problems = append(problems, "JWT_SECRET must be at least 32 characters")
 	}
 	if cfg.Env == EnvProduction {
+		if cfg.Payment.KeyID == "" {
+			problems = append(problems, "PAYMENT_KEY_ID is required in production")
+		}
 		if cfg.Payment.KeySecret == "" {
 			problems = append(problems, "PAYMENT_KEY_SECRET is required in production")
 		}

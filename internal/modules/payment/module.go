@@ -46,11 +46,14 @@ type Module struct {
 	handler *paymenthttp.Handler
 }
 
-func New(deps Deps) *Module {
+func New(deps Deps) (*Module, error) {
 	payments := paymentpg.NewPaymentRepository(deps.DB)
 	webhooks := paymentpg.NewWebhookRepository(deps.DB)
 
-	gateway, signatureHeader := buildGateway(deps.Config, deps.Guards)
+	gateway, signatureHeader, err := buildGateway(deps.Config, deps.Guards)
+	if err != nil {
+		return nil, err
+	}
 
 	service := app.NewPaymentService(
 		deps.DB, payments, webhooks, gateway, deps.Users, deps.Events, deps.Clock,
@@ -63,32 +66,7 @@ func New(deps Deps) *Module {
 		gateway:  gateway,
 		service:  service,
 		handler:  paymenthttp.NewHandler(service, signatureHeader),
-	}
-}
-
-// buildGateway selects the provider adapter.
-//
-// The mock is chosen when explicitly configured OR when running locally without
-// credentials, so a developer can exercise the entire payment path — intent,
-// signed webhook, capture, order promotion — with no Razorpay account. It uses
-// the same HMAC verification as the real adapter, so the signature path is
-// genuinely tested rather than bypassed.
-//
-// config.Load already refuses to boot production without PAYMENT_KEY_SECRET and
-// PAYMENT_WEBHOOK_SECRET, so the mock cannot silently end up live.
-func buildGateway(cfg *config.Config, guards *resilience.Registry) (domain.Gateway, string) {
-	useMock := cfg.Payment.Provider == "mock" ||
-		(!cfg.IsProduction() && cfg.Payment.KeySecret == "")
-
-	if useMock {
-		return paymentgateway.NewMock(cfg.Payment.WebhookSecret), "X-Mock-Signature"
-	}
-	return paymentgateway.NewRazorpay(
-		cfg.Payment.KeyID,
-		cfg.Payment.KeySecret,
-		cfg.Payment.WebhookSecret,
-		guards,
-	), "X-Razorpay-Signature"
+	}, nil
 }
 
 func (m *Module) Name() string { return "payment" }

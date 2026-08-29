@@ -64,8 +64,12 @@ func (s *PaymentService) CreateIntent(ctx context.Context, req contracts.Payment
 		}
 		if existing != nil {
 			return contracts.PaymentIntent{
-				PaymentID:      existing.ID,
-				ProviderRef:    existing.ProviderRef,
+				PaymentID:   existing.ID,
+				ProviderRef: existing.ProviderRef,
+				// The provider stored ON THE ROW, not the one configured now. A
+				// replayed intent must be completed with the gateway that opened it,
+				// even if the configured default has since changed.
+				Provider:       existing.Provider,
 				Status:         string(existing.Status),
 				RequiresAction: !existing.Status.IsTerminal(),
 			}, nil
@@ -138,6 +142,7 @@ func (s *PaymentService) CreateIntent(ctx context.Context, req contracts.Payment
 		PaymentID:      payment.ID,
 		ProviderRef:    intent.ProviderRef,
 		ClientSecret:   intent.ClientSecret,
+		Provider:       payment.Provider,
 		Status:         string(intent.Status),
 		RequiresAction: intent.RequiresAction,
 	}, nil

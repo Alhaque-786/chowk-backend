@@ -436,9 +436,12 @@ type checkoutResponse struct {
 }
 
 type paymentIntentResponse struct {
-	PaymentID      string `json:"payment_id"`
-	ProviderRef    string `json:"provider_ref"`
-	ClientSecret   string `json:"client_secret"`
+	PaymentID    string `json:"payment_id"`
+	ProviderRef  string `json:"provider_ref"`
+	ClientSecret string `json:"client_secret"`
+	// Provider tells the client which SDK to hand ClientSecret to. See
+	// contracts.PaymentIntent for why this is sent rather than assumed.
+	Provider       string `json:"provider"`
 	Status         string `json:"status"`
 	RequiresAction bool   `json:"requires_action"`
 }
@@ -485,6 +488,7 @@ func (h *Handler) Checkout(w http.ResponseWriter, r *http.Request) {
 			PaymentID:      result.Payment.PaymentID.String(),
 			ProviderRef:    result.Payment.ProviderRef,
 			ClientSecret:   result.Payment.ClientSecret,
+			Provider:       result.Payment.Provider,
 			Status:         result.Payment.Status,
 			RequiresAction: result.Payment.RequiresAction,
 		}
