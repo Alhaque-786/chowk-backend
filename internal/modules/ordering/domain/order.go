@@ -372,6 +372,11 @@ type OrderRepository interface {
 	Create(ctx context.Context, o *Order) error
 	Update(ctx context.Context, o *Order) error
 	FindByID(ctx context.Context, orderID id.ID) (*Order, error)
+
+	// IsOrderOwnedBy answers "may this person see this order" without loading it.
+	// Implements contracts.OrderOwnership, which delivery depends on so its
+	// tracking view stops handing a rider's phone number to whoever asks.
+	IsOrderOwnedBy(ctx context.Context, orderID, userID id.ID) (bool, error)
 	FindByNumber(ctx context.Context, number string) (*Order, error)
 	// FindByIDForUpdate takes a row lock, so two concurrent status changes
 	// cannot interleave and lose one of them.

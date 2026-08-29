@@ -27,6 +27,9 @@ type Deps struct {
 	Events eventbus.Publisher
 	Clock  clock.Clock
 	Users  contracts.UserDirectory
+	// Orders answers "is this order this person's", so the tracking view can be
+	// scoped to the customer who placed it. Implemented by ordering.
+	Orders contracts.OrderOwnership
 }
 
 type Module struct {
@@ -48,7 +51,7 @@ func New(deps Deps) *Module {
 	// in-house.
 	provider := deliveryprovider.NewManual("", 4000) // ~Rs40 assumed per drop
 
-	service := app.NewDispatchService(deps.DB, deliveries, provider, deps.Users, deps.Events, deps.Clock)
+	service := app.NewDispatchService(deps.DB, deliveries, provider, deps.Users, deps.Orders, deps.Events, deps.Clock)
 
 	return &Module{
 		deps:       deps,

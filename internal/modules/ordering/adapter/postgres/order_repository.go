@@ -507,6 +507,27 @@ func (r *OrderRepository) CountActiveForUser(ctx context.Context, userID id.ID) 
 // NO status filter, deliberately. Cancelled and rejected orders count as having
 // ordered — otherwise the offer is farmable by placing an order and cancelling it,
 // which is exactly the abuse a first-order restriction exists to prevent.
+/*
+	IsOrderOwnedBy reports whether an order belongs to a customer.
+
+	A single EXISTS rather than loading the order and comparing, so nothing about
+	an order a caller does not own is ever read into memory, let alone returned.
+	The question is "may this person see it", and the smallest possible answer to
+	that is a boolean.
+
+	Note it does NOT distinguish "not yours" from "does not exist". Both come back
+	false, and the caller turns both into the same 404 — otherwise the endpoint
+	becomes an oracle for which order ids are real.
+*/
+func (r *OrderRepository) IsOrderOwnedBy(ctx context.Context, orderID, userID id.ID) (bool, error) {
+	const q = `SELECT EXISTS(SELECT 1 FROM orders WHERE id = $1 AND user_id = $2)`
+	var owned bool
+	if err := r.db.Q(ctx).QueryRow(ctx, q, orderID, userID).Scan(&owned); err != nil {
+		return false, apperr.Internal(fmt.Errorf("ordering: order ownership: %w", err))
+	}
+	return owned, nil
+}
+
 func (r *OrderRepository) HasEverOrdered(ctx context.Context, userID id.ID) (bool, error) {
 	const q = `SELECT EXISTS (SELECT 1 FROM orders WHERE user_id = $1 LIMIT 1)`
 

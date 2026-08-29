@@ -183,6 +183,11 @@ func New(ctx context.Context, cfg *config.Config, log *slog.Logger) (*Server, er
 	srv.delivery = delivery.New(delivery.Deps{
 		Config: cfg, DB: db, Events: outbox, Clock: clk,
 		Users: srv.identity.UserDirectory(),
+		// Deferred for the same reason as promotion's History below: ordering is
+		// built last because it depends on every other module, so its contract
+		// cannot be handed over here. Resolved on the first call, by which point
+		// both modules exist.
+		Orders: lazyOrderOwnership{srv: srv},
 	})
 
 	// Notification subscribes to the order lifecycle and is subscribed to by
@@ -429,6 +434,18 @@ type lazyHistory struct{ srv *Server }
 
 func (l lazyHistory) HasEverOrdered(ctx context.Context, userID id.ID) (bool, error) {
 	return l.srv.ordering.CustomerHistory().HasEverOrdered(ctx, userID)
+}
+
+// lazyOrderOwnership defers resolving ordering's OrderOwnership, which delivery
+// needs to scope its tracking view to the customer who placed the order.
+//
+// Same shape and same reason as lazyHistory: delivery is constructed before
+// ordering, and reaching through srv on each call removes any question of when
+// the value was captured.
+type lazyOrderOwnership struct{ srv *Server }
+
+func (l lazyOrderOwnership) IsOrderOwnedBy(ctx context.Context, orderID, userID id.ID) (bool, error) {
+	return l.srv.ordering.OrderOwnership().IsOrderOwnedBy(ctx, orderID, userID)
 }
 
 // Handler exposes the fully-wired HTTP handler.

@@ -24,6 +24,7 @@ type DispatchService struct {
 	deliveries domain.DeliveryRepository
 	provider   domain.Provider
 	users      contracts.UserDirectory
+	orders     contracts.OrderOwnership
 	events     eventbus.Publisher
 	clock      clock.Clock
 }
@@ -33,12 +34,13 @@ func NewDispatchService(
 	deliveries domain.DeliveryRepository,
 	provider domain.Provider,
 	users contracts.UserDirectory,
+	orders contracts.OrderOwnership,
 	events eventbus.Publisher,
 	clk clock.Clock,
 ) *DispatchService {
 	return &DispatchService{
 		db: db, deliveries: deliveries, provider: provider,
-		users: users, events: events, clock: clk,
+		users: users, orders: orders, events: events, clock: clk,
 	}
 }
 
@@ -198,8 +200,36 @@ func (s *DispatchService) publishStatus(ctx context.Context, d *domain.Delivery)
 	return s.events.Publish(ctx, evt)
 }
 
-// GetForOrder returns the delivery for a customer's tracking view.
-func (s *DispatchService) GetForOrder(ctx context.Context, orderID id.ID) (*domain.Delivery, error) {
+/*
+GetForOrder returns the delivery for a customer's tracking view.
+
+SCOPED TO THE VIEWER, which it was not. This endpoint previously checked only
+that the caller held a valid token, so any signed-in user could read any
+order's delivery by id and receive the rider's name and personal phone number.
+Order ids are UUIDv7 and therefore time-ordered, so they are partially
+guessable rather than opaque — consecutive orders share a long prefix.
+
+platformActor is a BOOLEAN rather than a nil-able viewer id, matching the ops
+queue. Support genuinely needs to see any delivery to answer "where is my
+food", and a zero value that happened to mean "staff" is exactly the mistake
+this shape prevents: forgetting to set it denies access rather than granting
+it.
+
+Not-yours and does-not-exist return the SAME not-found error. Distinguishing
+them would turn this into an oracle for which order ids are real.
+*/
+func (s *DispatchService) GetForOrder(
+	ctx context.Context, orderID, viewerID id.ID, platformActor bool,
+) (*domain.Delivery, error) {
+	if !platformActor {
+		owned, err := s.orders.IsOrderOwnedBy(ctx, orderID, viewerID)
+		if err != nil {
+			return nil, err
+		}
+		if !owned {
+			return nil, apperr.NotFound("DELIVERY_NOT_FOUND", "That delivery could not be found.")
+		}
+	}
 	return s.deliveries.FindByOrderID(ctx, orderID)
 }
 

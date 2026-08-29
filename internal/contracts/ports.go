@@ -110,6 +110,32 @@ type StockReserver interface {
 }
 
 // ---------------------------------------------------------------------------
+// Consumed by: delivery. Implemented by: ordering.
+// ---------------------------------------------------------------------------
+
+// OrderOwnership answers whether an order belongs to a customer.
+//
+// It exists for one rule: a customer may see the delivery for their own order and
+// nobody else's. Delivery owns the tracking view but cannot see orders, and
+// ordering owns orders but not the tracking view — so the answer crosses a seam.
+type OrderOwnership interface {
+	/*
+		IsOrderOwnedBy reports whether an order belongs to a customer.
+
+		Exists because the delivery module could not answer it and was not asking.
+		Its tracking endpoint checked only that the caller was signed in, so any
+		authenticated user could read any order's delivery by id and get back the
+		rider's NAME AND PERSONAL PHONE NUMBER. Order ids are UUIDv7 and therefore
+		time-ordered, which makes them partially guessable rather than opaque.
+
+		One narrow question rather than an order repository, for the same reason as
+		CustomerHistory below: a port shaped like "give me the order" invites
+		delivery to grow order logic, and a port shaped like this cannot.
+	*/
+	IsOrderOwnedBy(ctx context.Context, orderID, userID id.ID) (bool, error)
+}
+
+// ---------------------------------------------------------------------------
 // Consumed by: promotion. Implemented by: ordering.
 // ---------------------------------------------------------------------------
 

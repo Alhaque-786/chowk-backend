@@ -86,7 +86,8 @@ func toDeliveryResponse(d *domain.Delivery) deliveryResponse {
 
 // TrackOrder is the customer's live tracking view.
 func (h *Handler) TrackOrder(w http.ResponseWriter, r *http.Request) {
-	if _, err := httpx.MustPrincipal(r.Context()); err != nil {
+	p, err := httpx.MustPrincipal(r.Context())
+	if err != nil {
 		httpx.Error(w, r, err)
 		return
 	}
@@ -96,7 +97,14 @@ func (h *Handler) TrackOrder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	delivery, err := h.dispatch.GetForOrder(r.Context(), orderID)
+	// The principal's own id, never a value from the request. There is no
+	// parameter for "whose order" because there must not be one.
+	//
+	// Support and platform admins may view any delivery: answering "where is my
+	// food" is the job, and they cannot do it through the customer's own account.
+	staff := p.HasRole(httpx.RoleSupport, httpx.RolePlatformAdmin)
+
+	delivery, err := h.dispatch.GetForOrder(r.Context(), orderID, p.UserID, staff)
 	if err != nil {
 		httpx.Error(w, r, err)
 		return
