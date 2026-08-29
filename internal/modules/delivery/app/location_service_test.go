@@ -28,8 +28,8 @@ func (f *fakeLive) Put(_ context.Context, p domain.Position, _ time.Duration) er
 	f.pos = &p
 	return nil
 }
-func (f *fakeLive) Get(context.Context, id.ID) (*domain.Position, error) { return f.pos, nil }
-func (f *fakeLive) Clear(context.Context, id.ID) error                   { f.pos = nil; return nil }
+func (f *fakeLive) Get(context.Context, id.ID) *domain.Position { return f.pos }
+func (f *fakeLive) Clear(context.Context, id.ID) error          { f.pos = nil; return nil }
 
 type fakeTrack struct {
 	points []domain.Position

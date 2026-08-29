@@ -144,8 +144,23 @@ func DistanceM(lat1, lng1, lat2, lng2 float64) float64 {
 // know where this rider is", which is a true and useful answer.
 type LivePositionStore interface {
 	Put(ctx context.Context, p Position, ttl time.Duration) error
-	// Get returns nil, nil when nothing is known — an ordinary state, not an error.
-	Get(ctx context.Context, deliveryID id.ID) (*Position, error)
+
+	/*
+		Get returns nil when nothing is known, and RETURNS NO ERROR.
+
+		Deliberate, and the signature is the point. Every way this can fail — a
+		miss, a Redis outage, an unreadable value — has the same correct answer for
+		the caller: there is no position to show. A returned error would be one the
+		caller could only discard, and an interface that promises an error it never
+		usefully produces invites `if err != nil { return nil, nil }` at every call
+		site, which reads as a swallowed bug even when it is intended.
+
+		Failures are logged where they happen, so a Redis outage is still visible
+		without being fatal to a page whose useful parts — status, ETA, the rider's
+		phone number — all still work.
+	*/
+	Get(ctx context.Context, deliveryID id.ID) *Position
+
 	Clear(ctx context.Context, deliveryID id.ID) error
 }
 

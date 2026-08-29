@@ -9,6 +9,7 @@ import (
 
 	"github.com/zevoxa/chowk-backend/internal/modules/delivery/domain"
 	"github.com/zevoxa/chowk-backend/internal/platform/cache"
+	"github.com/zevoxa/chowk-backend/internal/platform/logger"
 	"github.com/zevoxa/chowk-backend/internal/shared/apperr"
 	"github.com/zevoxa/chowk-backend/internal/shared/id"
 )
@@ -62,24 +63,41 @@ func (s *LivePositionStore) Put(ctx context.Context, p domain.Position, ttl time
 	return nil
 }
 
-// Get returns nil, nil when nothing is known, which is an ordinary state.
-func (s *LivePositionStore) Get(ctx context.Context, deliveryID id.ID) (*domain.Position, error) {
+/*
+Get returns nil when nothing is known, which is an ordinary state.
+
+A cache miss and a cache failure are treated alike ON PURPOSE: both mean "no
+current position", and a rider's dot is not worth failing a page for — the
+order status, the ETA and the phone number are all still useful with Redis
+down. That is why this returns no error; see the port for the reasoning.
+
+A genuine failure is LOGGED rather than swallowed, so an outage is visible in
+the logs even though it is invisible to the customer.
+*/
+func (s *LivePositionStore) Get(ctx context.Context, deliveryID id.ID) *domain.Position {
 	body, err := s.cache.Get(ctx, key(deliveryID))
-	if err != nil || len(body) == 0 {
-		// A cache miss and a cache failure are treated alike ON PURPOSE. Both mean
-		// "no current position", and a rider's dot is not worth failing a page for:
-		// the order status, the ETA and the phone number are all still useful with
-		// Redis down.
-		return nil, nil
+	if err != nil {
+		logger.From(ctx).Warn("live position unavailable",
+			"delivery_id", deliveryID, "error", err)
+		return nil
+	}
+	if len(body) == 0 {
+		return nil // an ordinary miss: nothing reported, or it expired
 	}
 
 	var raw stored
 	if err := json.Unmarshal(body, &raw); err != nil {
-		return nil, nil // unreadable is the same as absent
+		// Unreadable is the same as absent to the caller, but it means something
+		// wrote a shape we no longer understand, which is worth seeing.
+		logger.From(ctx).Warn("live position unreadable",
+			"delivery_id", deliveryID, "error", err)
+		return nil
 	}
 	riderID, err := id.Parse(raw.RiderID)
 	if err != nil {
-		return nil, nil
+		logger.From(ctx).Warn("live position has an unparseable rider id",
+			"delivery_id", deliveryID, "error", err)
+		return nil
 	}
 
 	return &domain.Position{
@@ -89,7 +107,7 @@ func (s *LivePositionStore) Get(ctx context.Context, deliveryID id.ID) (*domain.
 		Longitude:  raw.Longitude,
 		AccuracyM:  raw.AccuracyM,
 		RecordedAt: time.Unix(raw.RecordedAt, 0).UTC(),
-	}, nil
+	}
 }
 
 // Clear drops a position, called when a delivery finishes. The TTL would expire

@@ -114,11 +114,29 @@ vet: ## Run go vet
 	go vet ./...
 
 .PHONY: lint
-lint: ## Run golangci-lint if installed
+lint: ## Run golangci-lint, the version CI pins
+	# PINNED, and not to "latest", because the linter and the toolchain have to
+	# agree: a golangci-lint built with an older Go refuses to run against a
+	# go.mod targeting a newer one, and one built with a newer Go finds issues CI
+	# will not. Either way the local answer stops predicting the CI answer, which
+	# is the only reason to run it locally at all.
+	#
+	# `brew install golangci-lint` is deliberately NOT the suggestion. It installs
+	# whatever is current, which is how the two drift apart.
 	@if command -v golangci-lint >/dev/null 2>&1; then \
 		golangci-lint run ./...; \
+	elif [ -x "$$(go env GOPATH)/bin/golangci-lint" ]; then \
+		"$$(go env GOPATH)/bin/golangci-lint" run ./...; \
 	else \
-		echo "golangci-lint not installed; run: brew install golangci-lint"; \
+		echo ""; \
+		echo "  ***********************************************************"; \
+		echo "  LINT SKIPPED -- golangci-lint is not installed."; \
+		echo "  This check did NOT run, so a green result here does not"; \
+		echo "  mean CI will pass. Install the pinned version with:"; \
+		echo ""; \
+		echo "    go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_VERSION)"; \
+		echo "  ***********************************************************"; \
+		echo ""; \
 	fi
 
 .PHONY: tidy
@@ -153,8 +171,15 @@ check-soft-delete: ## Fail if a business table is hard-deleted
 	fi; \
 	echo "  ok: no business record is hard-deleted"
 
+# The version CI pins. Keep in step with .github/workflows/ci.yml.
+GOLANGCI_VERSION := v2.13.1
+
 .PHONY: check
-check: fmt vet test check-boundaries check-soft-delete ## Everything CI runs. Run this before pushing.
+check: fmt vet lint test check-boundaries check-soft-delete ## Everything CI runs. Run this before pushing.
+	# `lint` was missing from this list, which made the target's own description a
+	# lie: `make check` passed while CI failed on four nilerr findings. A
+	# pre-push check that does not run what CI runs is worse than no check,
+	# because it is trusted.
 
 # --- architecture enforcement ----------------------------------------------
 

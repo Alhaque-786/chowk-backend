@@ -162,8 +162,8 @@ func (s *LocationService) ForOrder(
 		return nil, nil
 	}
 
-	position, err := s.live.Get(ctx, delivery.ID)
-	if err != nil || position == nil {
+	position := s.live.Get(ctx, delivery.ID)
+	if position == nil {
 		return nil, nil
 	}
 	// A stale dot is worse than no dot: the customer watches a rider who is not
