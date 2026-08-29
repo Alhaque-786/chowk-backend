@@ -11,11 +11,13 @@ import (
 
 	"github.com/zevoxa/chowk-backend/internal/config"
 	"github.com/zevoxa/chowk-backend/internal/contracts"
+	deliverycache "github.com/zevoxa/chowk-backend/internal/modules/delivery/adapter/cache"
 	deliveryhttp "github.com/zevoxa/chowk-backend/internal/modules/delivery/adapter/http"
 	deliverypg "github.com/zevoxa/chowk-backend/internal/modules/delivery/adapter/postgres"
 	deliveryprovider "github.com/zevoxa/chowk-backend/internal/modules/delivery/adapter/provider"
 	"github.com/zevoxa/chowk-backend/internal/modules/delivery/app"
 	"github.com/zevoxa/chowk-backend/internal/modules/delivery/domain"
+	"github.com/zevoxa/chowk-backend/internal/platform/cache"
 	"github.com/zevoxa/chowk-backend/internal/platform/database"
 	"github.com/zevoxa/chowk-backend/internal/platform/eventbus"
 	"github.com/zevoxa/chowk-backend/internal/shared/clock"
@@ -30,6 +32,10 @@ type Deps struct {
 	// Orders answers "is this order this person's", so the tracking view can be
 	// scoped to the customer who placed it. Implemented by ordering.
 	Orders contracts.OrderOwnership
+	// Cache holds live rider positions, which are deliberately not durable —
+	// losing them costs one reporting interval, and an expired key is the honest
+	// way to say "we do not know where he is".
+	Cache cache.Cache
 }
 
 type Module struct {
@@ -38,8 +44,9 @@ type Module struct {
 	deliveries domain.DeliveryRepository
 	provider   domain.Provider
 
-	service *app.DispatchService
-	handler *deliveryhttp.Handler
+	service   *app.DispatchService
+	locations *app.LocationService
+	handler   *deliveryhttp.Handler
 }
 
 func New(deps Deps) *Module {
@@ -53,12 +60,23 @@ func New(deps Deps) *Module {
 
 	service := app.NewDispatchService(deps.DB, deliveries, provider, deps.Users, deps.Orders, deps.Events, deps.Clock)
 
+	// Live position lives in Redis and the decimated track in Postgres. See the
+	// domain's location.go for why the two stores are split.
+	locations := app.NewLocationService(
+		deliveries,
+		deliverycache.NewLivePositionStore(deps.Cache),
+		deliverypg.NewTrackRepository(deps.DB),
+		deps.Orders,
+		deps.Clock,
+	)
+
 	return &Module{
 		deps:       deps,
 		deliveries: deliveries,
 		provider:   provider,
 		service:    service,
-		handler:    deliveryhttp.NewHandler(service),
+		locations:  locations,
+		handler:    deliveryhttp.NewHandler(service, locations),
 	}
 }
 
@@ -66,6 +84,9 @@ func (m *Module) Name() string { return "delivery" }
 
 // WebhookRoutes are public, authenticated by HMAC signature.
 func (m *Module) WebhookRoutes() http.Handler { return m.handler.WebhookRoutes() }
+
+// RiderRoutes are the rider app's: report position, list what you are carrying.
+func (m *Module) RiderRoutes() http.Handler { return m.handler.RiderRoutes() }
 
 // CustomerRoutes expose live tracking.
 func (m *Module) CustomerRoutes() http.Handler { return m.handler.CustomerRoutes() }

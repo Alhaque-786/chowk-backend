@@ -79,6 +79,10 @@ type Delivery struct {
 	// than building a map view is most of why this module is small.
 	TrackingURL string
 
+	// RiderID is OUR rider's account, set when we deliver ourselves. Nil for a
+	// third-party courier, where the two fields below come from their API and no
+	// user of ours is involved. Both cases stay real, so this stays nullable.
+	RiderID    *id.ID
 	RiderName  string
 	RiderPhone string
 
@@ -239,4 +243,9 @@ type DeliveryRepository interface {
 	// serialise rather than both applying.
 	FindByOrderIDForUpdate(ctx context.Context, orderID id.ID) (*Delivery, error)
 	ListActiveForKitchen(ctx context.Context, kitchenID id.ID) ([]*Delivery, error)
+
+	// ListActiveForRider is what a rider's app asks on every foreground. Backed by
+	// a partial index on the in-flight statuses, because a finished delivery is
+	// never the answer and there will eventually be millions of them.
+	ListActiveForRider(ctx context.Context, riderID id.ID) ([]*Delivery, error)
 }

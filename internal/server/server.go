@@ -188,6 +188,7 @@ func New(ctx context.Context, cfg *config.Config, log *slog.Logger) (*Server, er
 		// cannot be handed over here. Resolved on the first call, by which point
 		// both modules exist.
 		Orders: lazyOrderOwnership{srv: srv},
+		Cache:  redis,
 	})
 
 	// Notification subscribes to the order lifecycle and is subscribed to by
@@ -387,6 +388,20 @@ func (s *Server) routes(tokens *token.Manager, limiter *ratelimit.Limiter) http.
 			r.Mount("/deliveries", s.delivery.CustomerRoutes())
 			r.Mount("/notifications", s.notification.CustomerRoutes())
 			r.Mount("/addresses", s.identity.AddressRoutes())
+		})
+
+		/*
+			--- Rider-facing: the delivery app ---
+
+			Its own group rather than a route inside the kitchen subtree, because a
+			rider is not kitchen staff and must not inherit kitchen scope. The only
+			thing a rider can reach is the delivery they are carrying, and which
+			deliveries those are is read from their token rather than sent by them.
+		*/
+		r.Group(func(r chi.Router) {
+			r.Use(httpx.Authenticate(tokens))
+			r.Use(httpx.RequireRole(httpx.RoleRider))
+			r.Mount("/rider", s.delivery.RiderRoutes())
 		})
 
 		// --- Kitchen-facing: the staff app ---

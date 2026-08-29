@@ -22,7 +22,7 @@ func NewDeliveryRepository(db *database.DB) *DeliveryRepository {
 
 const deliveryColumns = `
 	id, order_id, kitchen_id, mode, status, provider, provider_ref, tracking_url,
-	rider_name, rider_phone, cost_minor, pickup_eta, drop_eta,
+	rider_id, rider_name, rider_phone, cost_minor, pickup_eta, drop_eta,
 	assigned_at, picked_up_at, delivered_at, failure_reason, created_at, updated_at`
 
 func (r *DeliveryRepository) Create(ctx context.Context, d *domain.Delivery) error {
@@ -52,13 +52,15 @@ func (r *DeliveryRepository) Update(ctx context.Context, d *domain.Delivery) err
 			mode = $2, status = $3, provider_ref = $4, tracking_url = $5,
 			rider_name = $6, rider_phone = $7, cost_minor = $8,
 			pickup_eta = $9, drop_eta = $10, assigned_at = $11, picked_up_at = $12,
-			delivered_at = $13, failure_reason = $14, updated_at = $15
+			delivered_at = $13, failure_reason = $14, updated_at = $15,
+			rider_id = $16
 		WHERE id = $1`
 
 	tag, err := r.db.Q(ctx).Exec(ctx, q,
 		d.ID, string(d.Mode), string(d.Status), nullString(d.ProviderRef), d.TrackingURL,
 		d.RiderName, d.RiderPhone, d.Cost.Minor(), d.PickupETA, d.DropETA,
 		d.AssignedAt, d.PickedUpAt, d.DeliveredAt, d.FailureReason, d.UpdatedAt,
+		d.RiderID,
 	)
 	if err != nil {
 		if database.IsCheckViolation(err) {
@@ -92,6 +94,44 @@ func (r *DeliveryRepository) FindByOrderIDForUpdate(ctx context.Context, orderID
 func (r *DeliveryRepository) FindByProviderRef(ctx context.Context, provider, ref string) (*domain.Delivery, error) {
 	q := `SELECT ` + deliveryColumns + ` FROM deliveries WHERE provider = $1 AND provider_ref = $2`
 	return r.findOne(ctx, q, provider, ref)
+}
+
+/*
+ListActiveForRider is what a rider's app asks on every foreground.
+
+The status list is NARROWER than the kitchen board's, which includes
+'requested'. A requested delivery has no rider yet by definition, so including
+it here would be a filter that can never match — and would quietly suggest to
+a reader that an unassigned delivery could belong to somebody.
+
+Matches deliveries_rider_active_idx exactly, including the NOT NULL, or the
+partial index is not usable for it.
+*/
+func (r *DeliveryRepository) ListActiveForRider(ctx context.Context, riderID id.ID) ([]*domain.Delivery, error) {
+	q := `SELECT ` + deliveryColumns + ` FROM deliveries
+		WHERE rider_id = $1
+		  AND rider_id IS NOT NULL
+		  AND status IN ('assigned','at_pickup','picked_up')
+		ORDER BY created_at`
+
+	rows, err := r.db.Q(ctx).Query(ctx, q, riderID)
+	if err != nil {
+		return nil, apperr.Internal(fmt.Errorf("delivery: list active for rider: %w", err))
+	}
+	defer rows.Close()
+
+	out := []*domain.Delivery{}
+	for rows.Next() {
+		d, err := scanDelivery(rows)
+		if err != nil {
+			return nil, apperr.Internal(fmt.Errorf("delivery: scan: %w", err))
+		}
+		out = append(out, d)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, apperr.Internal(fmt.Errorf("delivery: iterate: %w", err))
+	}
+	return out, nil
 }
 
 // ListActiveForKitchen backs the dispatch board. Matches the partial index.
@@ -139,7 +179,7 @@ func scanDelivery(row scanner) (*domain.Delivery, error) {
 	)
 	if err := row.Scan(
 		&d.ID, &d.OrderID, &d.KitchenID, &mode, &status, &d.Provider, &providerRef,
-		&d.TrackingURL, &d.RiderName, &d.RiderPhone, &cost, &d.PickupETA, &d.DropETA,
+		&d.TrackingURL, &d.RiderID, &d.RiderName, &d.RiderPhone, &cost, &d.PickupETA, &d.DropETA,
 		&d.AssignedAt, &d.PickedUpAt, &d.DeliveredAt, &d.FailureReason,
 		&d.CreatedAt, &d.UpdatedAt,
 	); err != nil {

@@ -53,6 +53,9 @@ func (f *fakeDeliveries) FindByOrderIDForUpdate(context.Context, id.ID) (*domain
 func (f *fakeDeliveries) ListActiveForKitchen(context.Context, id.ID) ([]*domain.Delivery, error) {
 	return nil, nil
 }
+func (f *fakeDeliveries) ListActiveForRider(context.Context, id.ID) ([]*domain.Delivery, error) {
+	return nil, nil
+}
 
 func newTracking(owner id.ID) (*app.DispatchService, *fakeOwnership) {
 	own := &fakeOwnership{owner: owner}
