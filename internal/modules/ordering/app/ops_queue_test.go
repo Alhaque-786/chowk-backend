@@ -6,6 +6,7 @@ import (
 
 	"github.com/zevoxa/chowk-backend/internal/contracts"
 	orderingpg "github.com/zevoxa/chowk-backend/internal/modules/ordering/adapter/postgres"
+	orderingredis "github.com/zevoxa/chowk-backend/internal/modules/ordering/adapter/redis"
 	"github.com/zevoxa/chowk-backend/internal/modules/ordering/app"
 	"github.com/zevoxa/chowk-backend/internal/modules/ordering/domain"
 	"github.com/zevoxa/chowk-backend/internal/platform/database"
@@ -374,5 +375,68 @@ func TestRejectingAnAssistedOrderNeverRefundsBecauseItNeverCharged(t *testing.T)
 
 	if got := payments.WasCaptured(orderID); got != 0 {
 		t.Errorf("a rejected order was captured %d times", got)
+	}
+}
+
+// newCheckoutForList builds only what ListOrders touches: it reads the order
+// repository and nothing else, so every other dependency is a fake.
+func newCheckoutForList(t *testing.T, db *database.DB) *app.CheckoutService {
+	t.Helper()
+	return app.NewCheckoutService(
+		db,
+		orderingpg.NewOrderRepository(db),
+		orderingredis.NewCartRepository(testutil.Cache(t)),
+		testutil.NewFakePriceQuoter(),
+		testutil.NewFakeKitchenAvailability(),
+		testutil.NewFakeStockReserver(),
+		testutil.NewFakeDiscountCalculator(),
+		testutil.NewFakePaymentInitiator(),
+		testutil.NewFakeUserDirectory(id.New()),
+		testutil.NewRecordingPublisher(),
+		clock.System{},
+	)
+}
+
+func TestListOrdersShowsOnlyTheCallersOwn(t *testing.T) {
+	/*
+		The site header has linked to /orders since it was written and neither the page
+		nor this endpoint existed, so a customer clicking "Orders" got a 404. The
+		repository method was already here and never exposed.
+
+		The assertion that matters is isolation: there is no parameter for asking about
+		somebody else's orders, and this proves the scoping actually holds rather than
+		trusting that.
+	*/
+	db := testutil.DB(t)
+	ctx := context.Background()
+
+	kitchen := testutil.Kitchen(t, db)
+	mine := testutil.User(t, db)
+	somebodyElse := testutil.User(t, db)
+
+	myOrder := testutil.Order(t, db, mine, kitchen, testutil.OrderOpts{TotalMinor: 4000})
+	theirOrder := testutil.Order(t, db, somebodyElse, kitchen, testutil.OrderOpts{TotalMinor: 9000})
+
+	svc := newCheckoutForList(t, db)
+	orders, err := svc.ListOrders(ctx, mine)
+	if err != nil {
+		t.Fatalf("list orders: %v", err)
+	}
+
+	var sawMine, sawTheirs bool
+	for _, o := range orders {
+		switch o.ID {
+		case myOrder:
+			sawMine = true
+		case theirOrder:
+			sawTheirs = true
+		}
+	}
+	if !sawMine {
+		t.Error("my own order is missing from my order history")
+	}
+	if sawTheirs {
+		t.Error("ANOTHER CUSTOMER'S ORDER appeared in my history — that leaks their " +
+			"delivery address and phone number")
 	}
 }

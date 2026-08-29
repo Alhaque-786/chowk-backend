@@ -17,6 +17,7 @@ import (
 	"github.com/zevoxa/chowk-backend/internal/shared/clock"
 	"github.com/zevoxa/chowk-backend/internal/shared/id"
 	"github.com/zevoxa/chowk-backend/internal/shared/money"
+	"github.com/zevoxa/chowk-backend/internal/shared/paging"
 )
 
 // maxActiveOrdersPerUser is a fraud/abuse guard. A genuine customer does not
@@ -665,6 +666,33 @@ func (s *CheckoutService) MarkPaymentFailed(ctx context.Context, orderID id.ID, 
 		return s.publishStatusChange(ctx, order, contracts.EventOrderCancelled,
 			domain.StatusPendingPayment, reason, nil, "system", now)
 	})
+}
+
+/*
+ListOrders returns the caller's own order history, newest first.
+
+Filled a gap that was visible from the outside: the site header has linked to
+/orders since it was written, and neither the page nor this endpoint existed — so a
+customer clicking "Orders" got a 404. The repository method was already here and
+simply never exposed.
+
+SCOPED TO THE CALLER by the userID argument, not by a filter the client sends.
+There is no way to ask for somebody else's orders because there is no parameter for
+it, which is a stronger guarantee than checking one.
+
+Capped at 50 without pagination for now, and that is a deliberate stopping point
+rather than an oversight: nobody has fifty orders yet, and a cursor API that has
+never been exercised is a cursor API with a bug in it. The cap is here so the
+absence is bounded instead of unbounded.
+*/
+func (s *CheckoutService) ListOrders(ctx context.Context, userID id.ID) ([]*domain.Order, error) {
+	page, err := paging.NewRequest("", 50, paging.Descending)
+	if err != nil {
+		return nil, err
+	}
+	// No status filter: a customer wants to see cancelled and delivered orders too.
+	// "Where is my refund" is asked about orders a kitchen rejected.
+	return s.orders.ListForUser(ctx, userID, domain.Filter{}, page)
 }
 
 // GetOrder returns an order the caller is entitled to see.

@@ -35,6 +35,7 @@ func (h *Handler) CustomerRoutes() http.Handler {
 	r.Delete("/cart", h.ClearCart)
 
 	r.Post("/checkout", h.Checkout)
+	r.Get("/orders", h.ListOrders)
 	r.Get("/orders/{orderID}", h.GetOrder)
 	r.Post("/orders/{orderID}/cancel", h.CancelOrder)
 	return r
@@ -489,6 +490,25 @@ func (h *Handler) Checkout(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	httpx.Created(w, resp)
+}
+
+// ListOrders returns the caller's own orders, newest first.
+func (h *Handler) ListOrders(w http.ResponseWriter, r *http.Request) {
+	p, err := httpx.MustPrincipal(r.Context())
+	if err != nil {
+		httpx.Error(w, r, err)
+		return
+	}
+	orders, err := h.checkout.ListOrders(r.Context(), p.UserID)
+	if err != nil {
+		httpx.Error(w, r, err)
+		return
+	}
+	out := make([]orderResponse, 0, len(orders))
+	for _, o := range orders {
+		out = append(out, toOrderResponse(o))
+	}
+	httpx.JSON(w, http.StatusOK, map[string]any{"orders": out})
 }
 
 func (h *Handler) GetOrder(w http.ResponseWriter, r *http.Request) {
