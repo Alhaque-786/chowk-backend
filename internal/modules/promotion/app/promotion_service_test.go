@@ -90,6 +90,27 @@ func setup(t *testing.T, in app.CreateCouponInput, participants int) *fixture {
 	); err != nil {
 		t.Fatalf("create test kitchen: %v", err)
 	}
+
+	/*
+		Remove the kitchen and merchant too, not just the coupons.
+
+		They were missed, and the cost was visible from outside the test suite: 57
+		"Promotion Test Kitchen" rows had accumulated in the shared development
+		database and were rendering on the home page, burying the six real ones. A
+		test that pollutes the product it is testing is a bug in the test -- this
+		file already says so twenty lines up, and then leaked anyway.
+
+		Kitchen before merchant: the kitchen holds the FK.
+	*/
+	t.Cleanup(func() {
+		c := context.Background()
+		if _, err := db.Q(c).Exec(c, `DELETE FROM kitchens WHERE id = $1`, f.kitchenID); err != nil {
+			t.Logf("cleanup: kitchen %s: %v", f.kitchenID, err)
+		}
+		if _, err := db.Q(c).Exec(c, `DELETE FROM merchants WHERE id = $1`, merchantID); err != nil {
+			t.Logf("cleanup: merchant %s: %v", merchantID, err)
+		}
+	})
 	f.coupons = promotionpg.NewCouponRepository(db)
 	redemptions := promotionpg.NewRedemptionRepository(db)
 	// A stub history, so these tests do not need real orders. `false` means "has

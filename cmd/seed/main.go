@@ -118,23 +118,40 @@ func seedDevMenus(
 			{"Kebabs", "Mutton Seekh", "Minced mutton, charred on the skewer.", "/dishes/tandoori-platter.jpg", 229, catalogdomain.FoodNonVeg, 18, 2, false},
 			{"Kebabs", "Veg Shami", "Chana and potato, bound and shallow fried.", "/dishes/samosa.jpg", 149, catalogdomain.FoodVeg, 14, 1, false},
 			{"Breads", "Ulte Tawe Ka Paratha", "Cooked on an upturned griddle, as it should be.", "/dishes/naan.jpg", 59, catalogdomain.FoodVeg, 8, 0, false},
+			{"Kebabs", "Boti Kebab", "Cubed mutton, marinated overnight in raw papaya.", "/dishes/tandoori-platter.jpg", 249, catalogdomain.FoodNonVeg, 20, 2, false},
+			{"Kebabs", "Kakori Kebab", "So fine it is strained twice. Falls off the skewer.", "/dishes/seekh-kebab.jpg", 269, catalogdomain.FoodNonVeg, 22, 1, true},
+			{"Curries", "Mutton Korma", "Yoghurt and fried onion, no tomato.", "/dishes/rogan-josh.jpg", 349, catalogdomain.FoodNonVeg, 30, 2, false},
+			{"Breads", "Rumali Roti", "Thin enough to see through, folded like a handkerchief.", "/dishes/naan.jpg", 39, catalogdomain.FoodVeg, 5, 0, false},
+			{"Drinks", "Rooh Afza Sharbat", "Rose and khus, over ice.", "", 69, catalogdomain.FoodVeg, 3, 0, false},
 		},
 		"dakshin-tiffin": {
 			{"Dosa", "Masala Dosa", "Fermented overnight, filled with potato masala.", "/dishes/dosa.jpg", 129, catalogdomain.FoodVeg, 12, 1, true},
 			{"Dosa", "Ghee Roast", "Thin, crisp, and more ghee than is sensible.", "/dishes/dosa.jpg", 149, catalogdomain.FoodVeg, 12, 1, false},
 			{"Thali", "South Indian Thali", "Rice, sambar, three vegetables, curd, payasam.", "/dishes/thali.jpg", 199, catalogdomain.FoodVeg, 15, 1, true},
 			{"Drinks", "Filter Coffee", "Decoction and milk, poured properly.", "", 49, catalogdomain.FoodVeg, 4, 0, false},
+			{"Dosa", "Onion Rava Dosa", "Lacy, crisp, semolina rather than rice.", "/dishes/dosa.jpg", 139, catalogdomain.FoodVeg, 14, 1, false},
+			{"Idli & Vada", "Idli Sambar", "Three idli, sambar, two chutneys.", "/dishes/thali.jpg", 89, catalogdomain.FoodVeg, 8, 1, false},
+			{"Idli & Vada", "Medu Vada", "Fermented urad, fried to order.", "/dishes/samosa.jpg", 79, catalogdomain.FoodVeg, 10, 1, true},
+			{"Rice", "Curd Rice", "With pomegranate and a tempering of curry leaf.", "/dishes/kheer.jpg", 99, catalogdomain.FoodVeg, 6, 0, false},
+			{"Drinks", "Rose Milk", "Cold, and pinker than it needs to be.", "", 59, catalogdomain.FoodVeg, 3, 0, false},
 		},
 		"chowk-chaat-house": {
 			{"Chaat", "Tokri Chaat", "A basket of fried potato, filled and collapsed.", "/dishes/cover-streetfood.jpg", 119, catalogdomain.FoodVeg, 8, 2, true},
 			{"Chaat", "Aloo Tikki", "Griddled, split, and drowned in chutney.", "/dishes/samosa.jpg", 89, catalogdomain.FoodVeg, 7, 2, false},
 			{"Chaat", "Samosa Chaat", "Two samosas, broken, with chole over them.", "/dishes/samosa.jpg", 99, catalogdomain.FoodVeg, 8, 2, false},
 			{"Snacks", "Bhalla Papdi", "Soft dahi bhalla under crisp papdi.", "/dishes/chole-bhature.jpg", 109, catalogdomain.FoodVeg, 6, 1, false},
+			{"Chaat", "Pani Batasha", "Six puris, five waters, one of them fierce.", "/dishes/cover-streetfood.jpg", 79, catalogdomain.FoodVeg, 5, 3, true},
+			{"Chaat", "Dahi Bhalla", "Soaked, pressed, and buried under sweet curd.", "/dishes/chole-bhature.jpg", 99, catalogdomain.FoodVeg, 6, 0, false},
+			{"Snacks", "Kachori Sabzi", "Two urad kachori with hing-heavy aloo.", "/dishes/samosa.jpg", 89, catalogdomain.FoodVeg, 8, 2, false},
+			{"Snacks", "Matar Tikki", "Winter peas, griddled, with green chutney.", "/dishes/samosa.jpg", 95, catalogdomain.FoodVeg, 9, 2, false},
 		},
 		"ram-asrey-sweets": {
 			{"Sweets", "Malai Gilori", "Rolled khoya, silver leaf, sold by the piece.", "/dishes/gulab-jamun.jpg", 60, catalogdomain.FoodVeg, 2, 0, true},
 			{"Sweets", "Makhan Malai", "Winter only, and gone by nine in the morning.", "/dishes/kheer.jpg", 80, catalogdomain.FoodVeg, 2, 0, true},
 			{"Sweets", "Gulab Jamun", "Two pieces, warm, in syrup.", "/dishes/gulab-jamun.jpg", 70, catalogdomain.FoodVeg, 3, 0, false},
+			{"Sweets", "Motichoor Laddu", "By the piece or the kilo.", "/dishes/gulab-jamun.jpg", 55, catalogdomain.FoodVeg, 2, 0, false},
+			{"Sweets", "Kalakand", "Grainy, set that morning.", "/dishes/kheer.jpg", 90, catalogdomain.FoodVeg, 2, 0, true},
+			{"Namkeen", "Dalmoth", "The salty half of the counter.", "/dishes/samosa.jpg", 120, catalogdomain.FoodVeg, 2, 1, false},
 		},
 		"nawabi-dum-pukht": {
 			{"Biryani", "Dum Pukht Gosht Biryani", "Sealed with dough and cooked six hours.", "/dishes/chicken-biryani.jpg", 549, catalogdomain.FoodNonVeg, 48, 2, true},
@@ -142,6 +159,10 @@ func seedDevMenus(
 			{"Curries", "Nihari", "Overnight shank. Order it with sheermal.", "/dishes/rogan-josh.jpg", 449, catalogdomain.FoodNonVeg, 45, 3, true},
 			{"Curries", "Shahi Paneer", "Cashew and cardamom, no tomato.", "/dishes/butter-chicken.jpg", 329, catalogdomain.FoodVeg, 25, 1, false},
 			{"Breads", "Sheermal", "Saffron, slightly sweet, from the tandoor.", "/dishes/naan.jpg", 69, catalogdomain.FoodVeg, 10, 0, false},
+			{"Curries", "Dal Sultani", "Yellow dal finished with cream and smoke.", "/dishes/dal-makhani.jpg", 249, catalogdomain.FoodVeg, 20, 1, false},
+			{"Kebabs", "Kakori Kebab", "Minced on a stone, not in a machine.", "/dishes/seekh-kebab.jpg", 299, catalogdomain.FoodNonVeg, 25, 1, true},
+			{"Breads", "Warqi Paratha", "Layered, and shatters when you tear it.", "/dishes/naan.jpg", 89, catalogdomain.FoodVeg, 12, 0, false},
+			{"Desserts", "Shahi Tukda", "Fried bread, rabri, pistachio.", "/dishes/kheer.jpg", 149, catalogdomain.FoodVeg, 8, 0, true},
 		},
 	}
 
@@ -350,6 +371,12 @@ func run(force bool) error {
 			// Merchant-declared, not derived -- see the column comment in 0013.
 			CostForTwo:     money.FromRupees(650),
 			AvgPrepMinutes: 25,
+			// The flagship had no reputation at all, so the one kitchen with a full
+			// menu, categories and modifiers sorted last on anything rating-based
+			// and showed no chip. A demo kitchen that looks worse than the fixtures
+			// around it is a poor advertisement for the fixture set.
+			RatingAverage: 4.8,
+			RatingCount:   2417,
 
 			FSSAILicense: "FIRST-PARTY",
 			IsFirstParty: true,
@@ -400,6 +427,9 @@ func run(force bool) error {
 		costForTwoRupees float64
 	}
 
+	// Shared by every dev fixture, so one edit moves them all.
+	fssaiValidUntil := time.Now().UTC().AddDate(2, 0, 0)
+
 	devKitchens := []devKitchen{
 		{"00000000-0000-0000-0000-0000000000b1", "Tunday Kababi", "tunday-kababi",
 			"Galouti and shami kebabs from a recipe older than the city's clock tower.",
@@ -412,7 +442,11 @@ func run(force bool) error {
 		{"00000000-0000-0000-0000-0000000000b3", "Chowk Chaat House", "chowk-chaat-house",
 			"Tokri chaat, batasha and aloo tikki, fried to order.",
 			[]string{"Street Food", "Chaat", "Snacks"}, 26.8390, 80.9120,
-			"/dishes/cover-streetfood.jpg", 12, 4.2, 0, true, 79, 250},
+			// 0/0, not 4.2/0. An average with no reviews behind it is data that
+			// cannot exist, and a fixture that ships impossible data teaches the UI
+			// to handle a case production will never send. This is the unrated
+			// kitchen: the rating chip must be absent, not showing 0.0.
+			"/dishes/cover-streetfood.jpg", 12, 0, 0, true, 79, 250},
 		// Closed: the card must dim and say so rather than accepting an order.
 		{"00000000-0000-0000-0000-0000000000b4", "Ram Asrey Sweets", "ram-asrey-sweets",
 			"Malai gilori, makhan malai and mithai by the kilo.",
@@ -468,9 +502,24 @@ func run(force bool) error {
 
 			FSSAILicense: "DEV-FIXTURE",
 			IsFirstParty: false,
-			Version:      1,
-			CreatedAt:    now,
-			UpdatedAt:    now,
+			/*
+				A licence that is valid, and dated rather than left nil.
+
+				Migration 0017 made a third-party kitchen with no fssai_expiry count
+				as LAPSED, which is the right default -- an unknown licence is not a
+				valid one, and the alternative is serving food on an expired
+				registration. It also silently closed every dev kitchen here: they
+				were created before that column existed, so they all had nil, and the
+				listing showed "not available right now" for the three that were
+				otherwise open. The seeder was never updated alongside the migration.
+
+				Two years out, so this fixture does not quietly rot and reproduce the
+				same confusing state next year.
+			*/
+			FSSAIExpiry: &fssaiValidUntil,
+			Version:     1,
+			CreatedAt:   now,
+			UpdatedAt:   now,
 		}
 		if err := k.Validate(); err != nil {
 			return fmt.Errorf("dev kitchen %s invalid: %w", dk.slug, err)
@@ -484,20 +533,141 @@ func run(force bool) error {
 	}
 	log.Info("seeded dev kitchens", "added", addedKitchens, "total", len(devKitchens))
 
+	/*
+		Opening hours for the dev kitchens.
+
+		They had none, and a kitchen with no hours is CLOSED -- CanAcceptOrder
+		returns ReasonNoHoursSet rather than defaulting to open, so a half-onboarded
+		kitchen cannot take orders it has no one to cook. Correct in production, and
+		it meant five of the six kitchens on the development site were permanently
+		shut. With Khansama on a split shift too, there were stretches of the working
+		day when nothing at all was open and the cart, checkout and order flow could
+		not be reached without changing the system clock.
+
+		MOST OF THESE ARE DELIBERATELY WIDE, and that is a fixture decision rather
+		than a realistic one. A development database exists to be worked against; a
+		realistic 11-to-3 kitchen is realistic and useless at four in the afternoon.
+
+		Nawabi Dum Pukht keeps a narrow split shift on purpose, so the outside-hours
+		branch and the "closed between lunch and dinner" message stay exercised. One
+		kitchen is enough to test that. Six made the site unusable.
+	*/
+	type devHours struct {
+		kitchenID string
+		shifts    [][2]time.Duration
+	}
+	allDay := [][2]time.Duration{{7 * time.Hour, 23*time.Hour + 30*time.Minute}}
+	splitShift := [][2]time.Duration{
+		{11 * time.Hour, 15 * time.Hour},
+		{19 * time.Hour, 23 * time.Hour},
+	}
+	devSchedules := []devHours{
+		{"00000000-0000-0000-0000-0000000000b1", allDay}, // Tunday Kababi
+		{"00000000-0000-0000-0000-0000000000b2", allDay}, // Dakshin Tiffin
+		{"00000000-0000-0000-0000-0000000000b3", allDay}, // Chowk Chaat House
+		// Ram Asrey is paused (is_accepting_orders false), so it reads as closed
+		// for a different reason. It still gets hours -- otherwise two separate
+		// causes would be collapsed into one and the paused branch would never be
+		// the reason shown.
+		{"00000000-0000-0000-0000-0000000000b4", allDay},
+		// The one narrow schedule, kept to exercise ReasonOutsideHours.
+		{"00000000-0000-0000-0000-0000000000b5", splitShift},
+	}
+	/*
+		Ratings, applied to rows that already exist.
+
+		The seeder is idempotent by design -- Create returns a slug conflict on a
+		re-run and the loop moves on -- which means every field only ever gets
+		written on the very first run. Ratings were being set on the domain object
+		and dropped by an INSERT that did not list the columns, and once that was
+		fixed the fixtures STILL showed 0.00, because by then the rows existed and
+		Create was never reached. Idempotent and self-repairing are different
+		properties, and a fixture wants both.
+
+		Scoped to DEV-FIXTURE rows so this can never touch a real kitchen's
+		reputation. Ratings are derived from customer reviews in production and
+		nothing else should ever write them.
+	*/
+	ratings := []struct {
+		id    string
+		avg   float64
+		count int32
+		guard string
+		label string
+	}{
+		// Khansama is guarded on FIRST-PARTY, the dev kitchens on DEV-FIXTURE. Both
+		// guards exist so this can never reach a real onboarded merchant, whose
+		// rating belongs to its customers.
+		{khansamaKitchenID.String(), 4.8, 2417, "FIRST-PARTY", "Khansama"},
+	}
+	for _, dk := range devKitchens {
+		ratings = append(ratings, struct {
+			id    string
+			avg   float64
+			count int32
+			guard string
+			label string
+		}{dk.id, dk.rating, dk.ratingCount, "DEV-FIXTURE", dk.slug})
+	}
+	for _, r := range ratings {
+		if _, err := db.Q(ctx).Exec(ctx, `
+			UPDATE kitchens SET rating_average = $2, rating_count = $3, updated_at = now()
+			WHERE id = $1 AND fssai_license = $4`,
+			r.id, r.avg, r.count, r.guard,
+		); err != nil {
+			return fmt.Errorf("seed: ratings for %s: %w", r.label, err)
+		}
+		// Same self-repair reasoning as the ratings: rows created before migration
+		// 0017 have a nil expiry and read as lapsed, and Create is never reached on
+		// a re-run to fix them.
+		if _, err := db.Q(ctx).Exec(ctx, `
+			UPDATE kitchens SET fssai_expiry = $2, updated_at = now()
+			WHERE id = $1 AND fssai_license = 'DEV-FIXTURE' AND fssai_expiry IS NULL`,
+			r.id, fssaiValidUntil,
+		); err != nil {
+			return fmt.Errorf("seed: fssai expiry for %s: %w", r.label, err)
+		}
+	}
+
+	shiftRows := 0
+	for _, sched := range devSchedules {
+		kid, err := id.Parse(sched.kitchenID)
+		if err != nil {
+			return fmt.Errorf("seed: dev kitchen id %q: %w", sched.kitchenID, err)
+		}
+		var kh []catalogdomain.OpeningHours
+		for day := int16(0); day <= 6; day++ {
+			for _, sh := range sched.shifts {
+				kh = append(kh, catalogdomain.OpeningHours{
+					KitchenID: kid, DayOfWeek: day, OpensAt: sh[0], ClosesAt: sh[1],
+				})
+			}
+		}
+		if err := kitchens.ReplaceHours(ctx, kid, kh); err != nil {
+			return fmt.Errorf("seed: hours for %s: %w", sched.kitchenID, err)
+		}
+		shiftRows += len(kh)
+	}
+	log.Info("set dev kitchen hours", "kitchens", len(devSchedules), "shifts", shiftRows)
+
 	// --- Opening hours ---------------------------------------------------
-	// A split shift: lunch 11:00-15:00 and dinner 19:00-23:00, every day. Two
-	// rows per weekday rather than one 11:00-23:00 shift, because the kitchen
-	// genuinely closes in between and the customer should be told so.
+	//
+	// Open 07:00-23:30 daily, and this used to be a split shift -- lunch
+	// 11:00-15:00, dinner 19:00-23:00 -- which was more realistic and made the
+	// development site unusable for most of the working day. Khansama is the
+	// flagship fixture: it is the kitchen with the full menu, the categories and
+	// the modifiers, so it is the one somebody testing a cart or a checkout
+	// actually needs open.
+	//
+	// The split-shift case did not go away with it. Nawabi Dum Pukht carries that
+	// schedule now, which keeps ReasonOutsideHours exercised without every route
+	// through the app depending on the time of day.
 	var hours []catalogdomain.OpeningHours
 	for day := int16(0); day <= 6; day++ {
 		hours = append(hours,
 			catalogdomain.OpeningHours{
 				KitchenID: khansamaKitchenID, DayOfWeek: day,
-				OpensAt: 11 * time.Hour, ClosesAt: 15 * time.Hour,
-			},
-			catalogdomain.OpeningHours{
-				KitchenID: khansamaKitchenID, DayOfWeek: day,
-				OpensAt: 19 * time.Hour, ClosesAt: 23 * time.Hour,
+				OpensAt: 7 * time.Hour, ClosesAt: 23*time.Hour + 30*time.Minute,
 			},
 		)
 	}
@@ -766,15 +936,95 @@ func run(force bool) error {
 		return err
 	}
 
-	fmt.Printf(`
-Seeded Khansama.
+	/*
+		The seeder checks its own work.
 
+		This exists because of a silent failure that lasted weeks. Migration 0017
+		made a third-party kitchen with no fssai_expiry count as lapsed -- correct,
+		and the seeder was not updated with it, so every dev kitchen quietly became
+		"not available right now". Nothing errored. The seed log said it had seeded
+		five kitchens, and it had; they were simply all shut.
+
+		A fixture set that cannot be ordered from is not a fixture set, and the only
+		way to notice was to open the site and wonder. So the seeder now reports what
+		it actually produced, and fails when the answer is nothing usable.
+	*/
+	var open, closed int
+	rows, err := db.Q(ctx).Query(ctx, `
+		SELECT k.name, k.is_active, k.is_accepting_orders, k.is_first_party,
+		       k.fssai_expiry, count(h.id) AS shifts
+		FROM kitchens k
+		LEFT JOIN kitchen_hours h ON h.kitchen_id = k.id
+		WHERE k.fssai_license IN ('DEV-FIXTURE', 'FIRST-PARTY')
+		GROUP BY k.id ORDER BY k.name`)
+	if err != nil {
+		return fmt.Errorf("seed: verify fixtures: %w", err)
+	}
+	type fixtureState struct {
+		name   string
+		usable bool
+		why    string
+	}
+	var states []fixtureState
+	for rows.Next() {
+		var (
+			name                          string
+			active, accepting, firstParty bool
+			expiry                        *time.Time
+			shifts                        int
+		)
+		if err := rows.Scan(&name, &active, &accepting, &firstParty, &expiry, &shifts); err != nil {
+			rows.Close()
+			return fmt.Errorf("seed: verify fixtures: %w", err)
+		}
+		st := fixtureState{name: name, usable: true}
+		switch {
+		case !active:
+			st.usable, st.why = false, "inactive"
+		case !accepting:
+			// Deliberate: one paused kitchen keeps that branch exercised.
+			st.usable, st.why = false, "paused (intentional fixture)"
+		case shifts == 0:
+			st.usable, st.why = false, "NO OPENING HOURS -- will always read as closed"
+		case !firstParty && expiry == nil:
+			st.usable, st.why = false, "NO FSSAI EXPIRY -- reads as a lapsed licence"
+		case !firstParty && expiry.Before(time.Now()):
+			st.usable, st.why = false, "FSSAI EXPIRY IN THE PAST"
+		}
+		states = append(states, st)
+		if st.usable {
+			open++
+		} else {
+			closed++
+		}
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("seed: verify fixtures: %w", err)
+	}
+
+	fmt.Printf("\nSeeded %d kitchens: %d orderable, %d not.\n\n", len(states), open, closed)
+	for _, st := range states {
+		mark := "ok  "
+		if !st.usable {
+			mark = "shut"
+		}
+		fmt.Printf("  %s  %-22s %s\n", mark, st.name, st.why)
+	}
+
+	if open == 0 {
+		return fmt.Errorf("seed: every fixture kitchen is closed -- the development " +
+			"site cannot be ordered from, which is a broken seed rather than a state " +
+			"worth shipping")
+	}
+
+	fmt.Printf(`
   Kitchen ID : %s
   Menu       : GET /api/v1/kitchens/%s/menu
   Nearby     : GET /api/v1/kitchens/nearby?lat=26.8467&lng=80.9462
 
-Open 11:00-15:00 and 19:00-23:00 IST daily, so /menu reports
-is_open=false outside those hours -- that is correct behaviour, not a bug.
+Nawabi Dum Pukht keeps a split shift (11:00-15:00, 19:00-23:00 IST) so the
+outside-hours branch stays testable; the rest are open 07:00-23:30.
 `, khansamaKitchenID, khansamaKitchenID)
 
 	return nil

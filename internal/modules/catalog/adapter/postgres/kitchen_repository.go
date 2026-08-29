@@ -38,9 +38,15 @@ func (r *KitchenRepository) Create(ctx context.Context, k *domain.Kitchen) error
 			commission_bps, packaging_fee_minor, min_order_minor, cost_for_two_minor,
 			avg_prep_minutes,
 			fssai_license, gstin, is_first_party, version, created_at, updated_at,
-			fssai_expiry
+			fssai_expiry,
+			-- Written rather than left to default, because the struct carries them
+			-- and a field a caller sets must not vanish. Production creates a
+			-- kitchen with zeroes here and lets reviews move them, so this changes
+			-- nothing for real callers -- but development fixtures need a kitchen
+			-- that already has a reputation, and they were silently dropping it.
+			rating_average, rating_count
 		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,
-		          $19,$20,$21,$22,$23,$24,$25,$26,1,$27,$28,$29)`
+		          $19,$20,$21,$22,$23,$24,$25,$26,1,$27,$28,$29,$30,$31)`
 
 	// Postgres distinguishes NULL from an empty array, and the column is NOT
 	// NULL. A caller with no cuisines set should get an empty array, not a raw
@@ -57,6 +63,7 @@ func (r *KitchenRepository) Create(ctx context.Context, k *domain.Kitchen) error
 		k.CommissionBps, k.PackagingFee.Minor(), k.MinOrder.Minor(), k.CostForTwo.Minor(),
 		k.AvgPrepMinutes,
 		k.FSSAILicense, k.GSTIN, k.IsFirstParty, k.CreatedAt, k.UpdatedAt, k.FSSAIExpiry,
+		k.RatingAverage, k.RatingCount,
 	)
 	if err != nil {
 		if database.IsUniqueViolation(err, "kitchens_slug_key") {
