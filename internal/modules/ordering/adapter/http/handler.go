@@ -174,7 +174,22 @@ type orderResponse struct {
 	CouponCode    string `json:"coupon_code,omitempty"`
 
 	DeliveryAddress string `json:"delivery_address"`
-	CustomerNote    string `json:"customer_note,omitempty"`
+	/*
+		The destination as a POINT, alongside the text.
+
+		Exposed so the tracking map can draw where the food is going. It is the
+		customer's own address on their own order, so there is nothing here they do
+		not already know — but it is worth being explicit that this is why it is
+		sent, because a coordinate is not the kind of field to add casually.
+
+		KitchenID comes with it so the map can look up where the food is coming
+		from. Kitchen coordinates are already public on /kitchens; the order simply
+		never said which kitchen it belonged to.
+	*/
+	KitchenID         string  `json:"kitchen_id"`
+	DeliveryLatitude  float64 `json:"delivery_latitude,omitempty"`
+	DeliveryLongitude float64 `json:"delivery_longitude,omitempty"`
+	CustomerNote      string  `json:"customer_note,omitempty"`
 
 	PromisedAt   *time.Time `json:"promised_at,omitempty"`
 	ConfirmedAt  *time.Time `json:"confirmed_at,omitempty"`
@@ -221,6 +236,9 @@ func toOrderResponse(o *domain.Order) orderResponse {
 		}
 	}
 	resp.DeliveryAddress = strings.Join(nonEmpty, ", ")
+	resp.KitchenID = o.KitchenID.String()
+	resp.DeliveryLatitude = o.DeliveryLatitude
+	resp.DeliveryLongitude = o.DeliveryLongitude
 
 	for _, l := range o.Lines {
 		lr := orderLineResponse{
